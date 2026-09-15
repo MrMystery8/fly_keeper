@@ -42,6 +42,22 @@ class MaleCNSController:
         return command, diag
 
 
+class PassiveController:
+    """Never moves. The true stand-still baseline.
+
+    If MaleCNS matches this (0% left, 100% center, 0% right), then the neural
+    controller is effectively equivalent to standing still.
+    """
+
+    def reset(self):
+        pass
+
+    def act(self, world):
+        command = {"forward": 0.0, "lateral": 0.0, "turn": 0.0,
+                   "gait_on": 0.0, "move": "STAY"}
+        return command, {"move": "STAY"}
+
+
 class RandomController:
     """Random high-level locomotion commands."""
 
@@ -107,4 +123,6 @@ def build_controller(name, *, brain=None, vision_bridge=None, decoder=None,
         return RandomController(seed)
     if name == "heuristic":
         return HeuristicController(goal_line_x)
+    if name == "passive":
+        return PassiveController()
     raise ValueError(f"unknown controller {name!r}")

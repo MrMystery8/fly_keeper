@@ -163,7 +163,7 @@ class _Recorder:
 
 def main():
     p = argparse.ArgumentParser(description="Embodied MaleCNS fly goalkeeper")
-    p.add_argument("--controller", choices=["malecns", "random", "heuristic"], default="malecns")
+    p.add_argument("--controller", choices=["malecns", "random", "heuristic", "passive"], default="malecns")
     p.add_argument("--episodes", type=int, default=50)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--headless", action="store_true")

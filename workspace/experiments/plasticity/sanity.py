@@ -74,6 +74,7 @@ def main():
     p.add_argument("--lr", type=float, default=0.03)
     p.add_argument("--aim", type=float, default=0.25)
     p.add_argument("--seed", type=int, default=11)
+    p.add_argument("--credit", choices=["scalar", "directional"], default="scalar")
     a = p.parse_args()
 
     from adapters.brain import MaleCNSBrain
@@ -98,7 +99,7 @@ def main():
         side = "left" if ep % 2 == 0 else "right"
         shot = make_lr_shot(world, side, rng, aim_mag=a.aim, speed_range=(3.5, 4.5))
         res, _ = run_episode(world, brain, vision, decoder, pathway, shot,
-                             learn=True, explore=0.9, rng=rng)
+                             learn=True, explore=0.9, rng=rng, credit=a.credit)
         train_results.append(res)
     from collections import Counter
     print("TRAIN results:", dict(Counter(train_results)))

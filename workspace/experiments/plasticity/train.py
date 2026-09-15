@@ -73,7 +73,8 @@ class PathwayDecoder:
 
 
 def run_episode(world, brain, vision, decoder, pathway, shot, *, learn=True,
-                explore=0.0, rng=None, plasticity_on=True, explore_tau=0.85):
+                explore=0.0, rng=None, plasticity_on=True, explore_tau=0.85,
+                credit="scalar"):
     """One episode. Returns (result, diagnostics). If learn, accumulate
     eligibility each window and apply reward at the end.
 
@@ -113,7 +114,11 @@ def run_episode(world, brain, vision, decoder, pathway, shot, *, learn=True,
     result = world.result or "GOAL"
     reward = +1.0 if result == "SAVE" else -1.0
     if learn and pathway is not None:
-        pathway.apply_reward(reward)
+        if credit == "directional" and explore_dir != 0.0:
+            # action_side: +1 if the fly committed leftward (+y), -1 if rightward
+            pathway.apply_reward_directional(reward, np.sign(explore_dir))
+        else:
+            pathway.apply_reward(reward)
     from collections import Counter
     return result, dict(reward=reward, decisions=n, moves=dict(Counter(moves)),
                         final_fly_y=round(float(world.fly.position[1]), 3))

@@ -48,6 +48,10 @@ MASK_PATH = ROOT / "workspace" / "outputs" / "plasticity" / "plasticity_mask.npz
 class PlasticPathway:
     """Holds the mask, eligibility traces, bounds, and the update rule."""
 
+    # target descending opponent populations, by body ID (from build_mask)
+    LEFT_DN = {10162, 10527, 10259}     # DNp20_L, DNpe017_L, DNp11_L
+    RIGHT_DN = {10059, 555871, 10106}   # DNp20_R, DNpe017_R, DNp11_R
+
     def __init__(self, brain, *, lr=0.02, elig_decay=0.8, min_frac=0.1,
                  max_frac=2.0, elig_mode="subthreshold"):
         self.b = brain._brain
@@ -56,6 +60,35 @@ class PlasticPathway:
         self.pre = m["pre_index"].astype(np.int64)
         self.post = m["post_index"].astype(np.int64)
         self.baseline = m["baseline_weight"].astype(np.float64)
+        # per-edge target-DN side, tracing each edge's post neuron to the DN side
+        # it ultimately feeds. For mid->DN edges the post IS a DN; for
+        # source->mid edges the post is an intermediate whose downstream DN side
+        # we resolve via the mid->DN edges (an intermediate is assigned the side
+        # of the DN it most strongly projects to within the mask).
+        post_body = m["post_body_id"].astype(np.int64)
+        pre_body = m["pre_body_id"].astype(np.int64)
+        stage = m["stage"]
+        edge_side = np.zeros(len(self.edge), dtype=np.int8)  # +1 left, -1 right, 0 none
+        # mid->DN edges: side = side of the post DN
+        for k in range(len(self.edge)):
+            if stage[k] == "mid_to_dn":
+                pb = int(post_body[k])
+                if pb in self.LEFT_DN:
+                    edge_side[k] = +1
+                elif pb in self.RIGHT_DN:
+                    edge_side[k] = -1
+        # intermediate -> DN side map (by intermediate body id, majority vote)
+        inter_side = {}
+        for k in range(len(self.edge)):
+            if stage[k] == "mid_to_dn" and edge_side[k] != 0:
+                inter_side.setdefault(int(pre_body[k]), []).append(int(edge_side[k]))
+        inter_side = {b: (1 if sum(v) > 0 else -1) for b, v in inter_side.items()}
+        # source->mid edges: side = side of the intermediate (post) they feed
+        for k in range(len(self.edge)):
+            if stage[k] == "source_to_mid":
+                edge_side[k] = inter_side.get(int(post_body[k]), 0)
+        self.edge_side = edge_side
+        self.stage = stage
         # per-edge sign-preserving bounds relative to baseline
         self.lo = self.baseline * min_frac
         self.hi = self.baseline * max_frac
@@ -93,6 +126,37 @@ class PlasticPathway:
         self.total_abs_dw += float(np.abs(applied).sum())
         if not np.isfinite(self.b.weight[self.edge]).all():
             raise RuntimeError("Nonfinite weight after plasticity update")
+
+    def apply_reward_directional(self, reward, action_side):
+        """Direction-differentiated credit (EXPERIMENTAL).
+
+        Uses the fly's OWN committed motor action (action_side: +1 = it strafed
+        left, -1 = right) - legitimate motor self-knowledge, NOT ball position -
+        together with the task reward to route credit to the correct side's
+        pathway edges. On a rewarded (SAVE) leftward action, potentiate the
+        left-DN pathway edges and mildly depress the right-DN ones (opponent),
+        and vice versa; a GOAL applies the opposite. Edges with no resolved side
+        get the plain scalar update (small).
+
+        credit_k = reward * sign_match_k,  sign_match_k = action_side * edge_side_k
+        dw_k = lr * credit_k * eligibility_k
+        This can only build L/R asymmetry if the eligibility on same-side edges
+        differs from opposite-side edges - which it does at the source->mid stage.
+        """
+        action_side = float(np.sign(action_side))
+        if action_side == 0.0:
+            return self.apply_reward(reward)
+        sign_match = action_side * self.edge_side.astype(np.float64)  # +1/-1/0
+        credit = float(reward) * sign_match
+        dw = self.lr * credit * self.eligibility
+        w = self.b.weight[self.edge].astype(np.float64) + dw
+        w = np.clip(w, self.lo, self.hi)
+        applied = w - self.b.weight[self.edge].astype(np.float64)
+        self.b.weight[self.edge] = w.astype(np.float32)
+        self.n_updates += int((np.abs(applied) > 1e-9).sum())
+        self.total_abs_dw += float(np.abs(applied).sum())
+        if not np.isfinite(self.b.weight[self.edge]).all():
+            raise RuntimeError("Nonfinite weight after directional plasticity update")
 
     def clear_eligibility(self):
         self.eligibility[:] = 0.0

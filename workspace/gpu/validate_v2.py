@@ -37,7 +37,7 @@ def full_steps(count):
 def fixture_case(luminance,ticks,label):
     b=NativeBrain(GRAPH);s=snapshot(b)
     with MetalReference(b.ptr,b.post,b.weight) as serial,MetalDeterministicV2(b.ptr,b.post,b.weight) as v2:
-        serial.load(s)
+        serial.load(s);v2.load(s)
         for frame in [luminance]:
             alpha=1-np.exp(-ticks*.1/10);b.luminance += alpha*(np.clip(frame,0,1)-b.luminance);b.drive.fill(0);b.drive[b.lamina]=12.;b.drive[b.retina]=30*b.luminance/(.02+b.luminance);serial.set_drive(b.drive);v2.set_drive(b.drive)
             for i in range(ticks): cpu_tick(s);serial.step();v2.step();compare(s,serial,v2,i+1,label)

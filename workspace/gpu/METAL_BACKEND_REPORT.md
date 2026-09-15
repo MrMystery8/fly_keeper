@@ -4,6 +4,16 @@
 
 **FROZEN PARITY ORACLE.** The CPU backend remains default and scientifically authoritative. `metal-reference-serial` is test-only and no Metal simulation is selectable.
 
+## Frozen bridge current-toolchain identity (2026-09-15)
+
+The historical serial bridge binary SHA-256 is retained as
+`c5fb5956040981da5b4145aa1fa8151cd9156dcd8ecfcac3c8742397df7d63bc`.
+With unchanged frozen source and `build.py`, the current Apple toolchain
+reproducibly emits `f3bc6ca88852029bb2fcdc89fc3e972a9a98cee8c215be1e75b943683e675ba4`.
+This is accepted as a toolchain-specific Mach-O identity only after behavioral
+parity checks; it is not a scientific-model or serial-source change. V2/V3
+builds are isolated in `build_accelerators.py`, leaving `build.py` frozen.
+
 ## Deterministic-v2 continuation (2026-09-15)
 
 `metal/MaleCNS_v2.metal`, `metal/bridge_v2.mm`, and `metal_v2.py` now form a

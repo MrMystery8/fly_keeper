@@ -1,0 +1,52 @@
+{
+  "target_dn": {
+    "('DNpe017', 'L')": 10527,
+    "('DNp11', 'L')": 10259,
+    "('DNp20', 'R')": 10059,
+    "('DNp20', 'L')": 10162,
+    "('DNp11', 'R')": 10106,
+    "('DNpe017', 'R')": 555871
+  },
+  "n_target_dn": 6,
+  "n_intermediates": 1027,
+  "stage_mid_to_dn": {
+    "n_edges": 1097,
+    "pre_superclass": {
+      "visual_projection": 481,
+      "cb_intrinsic": 298,
+      "ol_intrinsic": 291,
+      "visual_centrifugal": 27
+    },
+    "post_types": {
+      "DNp11": 760,
+      "DNpe017": 275,
+      "DNp20": 62
+    },
+    "weight_mean": 6.653,
+    "weight_max": 217.25
+  },
+  "stage_source_to_mid": {
+    "n_edges": 114,
+    "pre_superclass": {
+      "ol_intrinsic": 102,
+      "visual_projection": 12
+    },
+    "post_types": {
+      "Tm4": 50,
+      "MeVP9": 23,
+      "T2": 10,
+      "MeLo2": 9,
+      "MeVP8": 4,
+      "LC4": 4,
+      "PS220": 2,
+      "GNG416": 2,
+      "PS314": 1,
+      "PS221": 1
+    },
+    "weight_mean": 3.52,
+    "weight_max": 12.925
+  },
+  "total_plastic_synapses": 1211,
+  "total_synapses_in_graph": 25582938,
+  "fraction_plastic": 4.7e-05
+}

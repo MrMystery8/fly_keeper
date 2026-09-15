@@ -74,5 +74,11 @@ class VisionBridge:
             rgb = self.render()
         used = self._apply_condition(rgb)
         luminance = retinal_samples(used, self.uv)
+        if self.condition == "shuffled":
+            # destroy spatial structure while preserving the luminance
+            # distribution: apply a fixed random permutation to the receptors.
+            if getattr(self, "_shuffle_perm", None) is None:
+                self._shuffle_perm = np.random.default_rng(1234).permutation(len(luminance))
+            luminance = luminance[self._shuffle_perm]
         self.brain.stimulate_retinal_luminance(self.retina_ids, luminance)
         return luminance, used

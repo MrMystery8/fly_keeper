@@ -108,6 +108,30 @@ class PlasticPathway:
     def set_weights(self, w):
         self.b.weight[self.edge] = np.asarray(w, dtype=np.float32)
 
+    def save_checkpoint(self, path, metadata=None):
+        """Save ONLY the masked plastic weights + edge IDs + metadata. The full
+        connectome is never written; a checkpoint is applied on top of the fixed
+        baseline via load_checkpoint."""
+        import json
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(path, edge_index=self.edge, pre_body_id=self.pre,
+                 post_body_id=self.post, baseline_weight=self.baseline,
+                 learned_weight=self.b.weight[self.edge].astype(np.float32),
+                 metadata=json.dumps(metadata or {}))
+        return str(path)
+
+    def load_checkpoint(self, path):
+        """Apply a saved plastic-weight checkpoint on top of the current graph.
+        Verifies the edge set matches the mask (never trusts arbitrary weights)."""
+        import json
+        with np.load(path, allow_pickle=False) as a:
+            if not np.array_equal(a["edge_index"], self.edge):
+                raise ValueError("Checkpoint edge set does not match the current mask")
+            self.b.weight[self.edge] = a["learned_weight"].astype(np.float32)
+            self.clear_eligibility()
+            return json.loads(str(a["metadata"]))
+
     def weight_report(self):
         w = self.b.weight[self.edge].astype(np.float64)
         frac = w / self.baseline

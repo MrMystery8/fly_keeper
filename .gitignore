@@ -16,3 +16,8 @@ workspace/visualizer/dist/
 # Embedded upstream repositories and their large datasets are not owned by this workspace.
 upstream/
 workspace/vendor/
+# large vendored MuJoCo body model (Apache-2.0), fetched via sparse checkout
+workspace/vendor/mujoco_menagerie_flybody/
+# generated embodied run artifacts and recordings
+workspace/outputs/embodied_flykeeper/
+*.mp4

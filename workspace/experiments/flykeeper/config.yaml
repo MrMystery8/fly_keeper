@@ -1,0 +1,11 @@
+environment:
+  width: 160
+  height: 96
+  ball_step_px: 5
+  frame_interval_ms: 20
+brain:
+  dataset: malecns_v1
+  plasticity: false
+decoder:
+  left_dnp20_body_ids: [10162]
+  right_dnp20_body_ids: [10059]

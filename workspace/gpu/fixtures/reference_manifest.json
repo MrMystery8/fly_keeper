@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "model": "fixed-weight MaleCNS v1.0",
+  "dt_ms": 0.1,
+  "cpu_reference_hashes": "../REFERENCE_CPU_HASHES.md",
+  "metal_reference_hashes": "../METAL_REFERENCE_HASHES.md",
+  "fixtures": {
+    "flykeeper_retinal_14_frames": {
+      "path": "flykeeper_retinal_sequence.npz",
+      "sha256": "18360eab91939ca7f7a5e14a4c5e8fbb4bae2c5f90ff48367bca17e19f948b6d",
+      "luminance_dtype": "float32",
+      "luminance_shape": [14, 3335],
+      "tick_count": 2800,
+      "expected_spike_trace": "exact CPU=metal-reference-serial state comparison"
+    },
+    "asymmetric_and_mirrored": {
+      "path": "asymmetric_retinal_fixtures.npz",
+      "sha256": "532c8a9864fb8cf5e3d749d6771f7a5be86ef7bccf514548842af7061dc98d35",
+      "luminance_dtype": "float32",
+      "names": ["blank", "left_ball", "center_ball", "right_ball", "strong_left", "strong_right", "mirrored_left", "mirrored_right", "mirrored_strong_left", "mirrored_strong_right"],
+      "tick_count_per_repeated_case": 1000
+    }
+  },
+  "behavioral_traces": {
+    "flykeeper_10_episodes": {
+      "path": "reference_traces/flykeeper-parity-10.json",
+      "sha256": "bb238ca46a7a895818aa1e57d75d192965d1df928017447368dd6f7a491fc467",
+      "episodes": 10,
+      "decisions": 140,
+      "dnp20_trace_hash": "bb238ca46a7a895818aa1e57d75d192965d1df928017447368dd6f7a491fc467",
+      "action_trace_hash": "bb238ca46a7a895818aa1e57d75d192965d1df928017447368dd6f7a491fc467"
+    },
+    "flykeeper_100_episodes": {
+      "path": "reference_traces/flykeeper-parity-100.json",
+      "sha256": "eb7466b17b81aef5f78f69685d19c960ec13a6b18c16bd238eee92f6516af160",
+      "episodes": 100,
+      "decisions": 1400,
+      "dnp20_trace_hash": "eb7466b17b81aef5f78f69685d19c960ec13a6b18c16bd238eee92f6516af160",
+      "action_trace_hash": "eb7466b17b81aef5f78f69685d19c960ec13a6b18c16bd238eee92f6516af160"
+    }
+  }
+}

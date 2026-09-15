@@ -1,0 +1,18 @@
+# OS and editor noise
+.DS_Store
+
+# Local analysis/build caches
+.codebase-memory/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Generated accelerator and experiment artifacts
+workspace/gpu/build/
+workspace/outputs/
+workspace/visualizer/node_modules/
+workspace/visualizer/dist/
+
+# Embedded upstream repositories and their large datasets are not owned by this workspace.
+upstream/
+workspace/vendor/

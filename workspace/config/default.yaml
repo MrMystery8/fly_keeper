@@ -1,0 +1,17 @@
+brain:
+  dataset: malecns_v1
+adapter:
+  stimulation:
+    max_abs_current_mv: 30.0  # explicit external-current safety bound
+    persistence: one_step
+  checkpoint:
+    format: doomfly-fixed-baseline
+sensory:
+  populations: []
+output:
+  populations: []
+plasticity:
+  enabled: false
+simulation:
+  timestep_ms: null  # use upstream audited default: 0.1 ms
+  seed: 7

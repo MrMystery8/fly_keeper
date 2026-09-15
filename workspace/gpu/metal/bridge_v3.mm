@@ -7,7 +7,7 @@
 struct RadixControl { uint32_t count, blocks, shift; };
 struct V3PrimitiveContext {
   id<MTLDevice> device; id<MTLCommandQueue> queue; id<MTLLibrary> library;
-  id<MTLComputePipelineState> hist, prefix, scatter, mark, compact, stable;
+  id<MTLComputePipelineState> hist, prefix, scatter, mark, compact, stable, source_prefix, expand;
 };
 
 extern "C" {
@@ -19,8 +19,8 @@ void *metal_v3_primitive_create(const char *library_path) {
   c->library=[c->device newLibraryWithFile:[NSString stringWithUTF8String:library_path] error:&error];
   if(!c->library) { delete c; return nullptr; }
   auto pipeline=[&](NSString *name) { return [c->device newComputePipelineStateWithFunction:[c->library newFunctionWithName:name] error:&error]; };
-  c->hist=pipeline(@"v3_radix_hist"); c->prefix=pipeline(@"v3_radix_prefix"); c->scatter=pipeline(@"v3_radix_scatter"); c->mark=pipeline(@"v3_mark_segments"); c->compact=pipeline(@"v3_compact_segments"); c->stable=pipeline(@"v3_stable_compact");
-  if(!c->hist || !c->prefix || !c->scatter || !c->mark || !c->compact || !c->stable) { delete c; return nullptr; }
+  c->hist=pipeline(@"v3_radix_hist"); c->prefix=pipeline(@"v3_radix_prefix"); c->scatter=pipeline(@"v3_radix_scatter"); c->mark=pipeline(@"v3_mark_segments"); c->compact=pipeline(@"v3_compact_segments"); c->stable=pipeline(@"v3_stable_compact");c->source_prefix=pipeline(@"v3_source_prefix");c->expand=pipeline(@"v3_expand_edges");
+  if(!c->hist || !c->prefix || !c->scatter || !c->mark || !c->compact || !c->stable || !c->source_prefix || !c->expand) { delete c; return nullptr; }
   return c;
  }
 }

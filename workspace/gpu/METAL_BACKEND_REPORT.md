@@ -1,8 +1,61 @@
 # Metal backend investigation report
 
+## Practical throughput backend (v5, 2026-09-15)
+
+FlyKeeper can now opt into `backend="metal"` / `--backend metal`; CPU remains
+the default and unchanged. The selected v5 backend keeps graph, neuron state,
+delay ring, active flags, and spike counters in persistent Metal buffers. A
+20-ms observation advances 200 internal 0.1-ms ticks in one command buffer and
+copies back only requested readouts. Drive upload is one 166,700-element float
+vector per observation boundary.
+
+The fast path uses dense parallel neuron evolution, GPU-generated indirect
+dispatches for only delayed source rows, and relaxed atomic float accumulation.
+Spike resets are deferred to the start of the next internal tick (with a final
+boundary reset), which is unobservable inside the batch and removes two kernel
+phases per tick. The graph, weights, delay, threshold, refractory period, drive
+equations, and fixed-weight model are unchanged. Plasticity remains unsupported.
+
+Measured on this Apple M4 after a realistic propagation warm-up, a sustained
+100-repeat run of the 14-frame retinal sequence (280,000 ticks) produced 12,994
+steps/s, 1.299x biological realtime, versus CPU 13,056 steps/s / 1.306x (0.995x
+kernel-level speedup: effectively tied). A 100-episode closed-loop FlyKeeper run completed in
+26.16 s versus CPU 48.43 s, a 1.85x end-to-end speedup and 1.07x biological
+realtime including rendering, retinal sampling, Python control, and readout.
+Persistent Metal allocation is approximately 225.8 MB, excluding small driver
+objects; the Python adapter currently also retains the NativeBrain graph arrays
+for IDs, retinal geometry, and CPU-compatible metadata. `/usr/bin/time -l` on
+a one-episode process measured 654.0 MB maximum RSS / 659.2 MB peak footprint
+for Metal, versus 404.1 MB / 375.5 MB for CPU.
+
+V5 is compiled with fast math because its atomic propagation already relaxes
+exact arithmetic; all exact/reference backends retain `-fno-fast-math`.
+
+This speed is not exact parity. On the 14-frame open-loop fixture, 9/14 DNp20
+readout frames were exact, maximum left/right spike-count difference was 1,
+maximum readout voltage difference was 6.21 mV, and 4/14 decoded actions
+differed. In 100 closed-loop seed-7 episodes, CPU saved 26 and Metal saved 25;
+9 episode results and 728/1,400 actions differed. CPU actions were LEFT/STAY/
+RIGHT = 134/694/572; Metal = 7/859/534. The large trajectory divergence from
+small readout differences is expected from closed-loop feedback, but the
+left-action collapse is behaviorally material. Use CPU for scientific parity;
+use Metal only for throughput experiments that explicitly accept this measured
+model variant.
+
+The exact batched v4 experiment proved that command-buffer overhead was not the
+v2 bottleneck: blank batches reached 38,371 steps/s, but realistic activity
+fell to about 92 steps/s because stable active/source ordering remained serial
+inside one threadgroup. The sparse v6 target-deduplication experiment reached
+14,052 steps/s (1.405x realtime) on one sequence but added enough kernel phases
+to offer only ~3% over CPU and did not improve DNp20/action differences. These
+implementations remain isolated rather than replacing the selected v5 path.
+
 ## Status
 
-**FROZEN PARITY ORACLE.** The CPU backend remains default and scientifically authoritative. `metal-reference-serial` is test-only and no Metal simulation is selectable.
+**CPU REFERENCE + OPTIONAL RELAXED METAL.** The CPU backend remains default and
+scientifically authoritative. `metal-reference-serial` is a test-only frozen
+oracle; the selectable `metal` backend is the explicitly relaxed v5 path
+described above.
 
 ## Frozen bridge current-toolchain identity (2026-09-15)
 

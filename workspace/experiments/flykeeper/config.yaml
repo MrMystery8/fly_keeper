@@ -5,6 +5,7 @@ environment:
   frame_interval_ms: 20
 brain:
   dataset: malecns_v1
+  backend: cpu
   plasticity: false
 decoder:
   left_dnp20_body_ids: [10162]

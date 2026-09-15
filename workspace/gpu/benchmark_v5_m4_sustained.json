@@ -1,0 +1,27 @@
+[
+  {
+    "backend": "CPU native retinal/FlyKeeper cadence",
+    "steps": 280000,
+    "wall_seconds": 21.445344208041206,
+    "us_per_step": 76.5905150287186,
+    "steps_per_second": 13056.446997712932,
+    "realtime_x": 1.3056446997712932,
+    "frames": 1400
+  },
+  {
+    "backend": "Metal fast v5 retinal/FlyKeeper cadence (1024)",
+    "steps": 280000,
+    "wall_seconds": 21.548972040996887,
+    "us_per_step": 76.96061443213173,
+    "steps_per_second": 12993.659255174698,
+    "realtime_x": 1.2993659255174699,
+    "width": 1024,
+    "frames": 1400,
+    "speedup_vs_cpu": 0.9951910544615061,
+    "memory_bytes": 225842756,
+    "readout_exact_frames": 545,
+    "action_mismatches": 758,
+    "max_abs_readout_spike_difference": 1,
+    "max_abs_readout_voltage_difference_mv": 6.941226959228516
+  }
+]

@@ -46,11 +46,10 @@ class MaleCNSBrain:
     def __init__(self, graph_path: Path | None = None, *, max_abs_current_mv: float = 30.0, backend: str = "cpu"):
         if not math.isfinite(max_abs_current_mv) or max_abs_current_mv <= 0:
             raise ValueError("max_abs_current_mv must be a positive finite value")
-        if backend not in {"cpu", "metal"}:
-            raise ValueError("backend must be 'cpu' or 'metal'")
-        if backend == "metal":
-            from gpu.backend import MetalBackendUnavailable
-            raise MetalBackendUnavailable("Metal is experimental and unavailable until full Xcode and CPU/GPU parity validation are complete; use backend='cpu'.")
+        if backend not in {"cpu", "metal", "metal-fast"}:
+            raise ValueError("backend must be 'cpu', 'metal', or 'metal-fast'")
+        if backend == "metal-fast":
+            backend = "metal"
         self.backend = backend
         self.graph_path = Path(graph_path or UPSTREAM / "outputs/doom/malecns_v1/graph.npz")
         self.max_abs_current_mv = float(max_abs_current_mv)
@@ -73,11 +72,22 @@ class MaleCNSBrain:
 
     def _new_runtime(self) -> None:
         from doom.native import NativeBrain
+        old_metal = getattr(self, "_metal", None)
+        if old_metal is not None:
+            old_metal.close()
         self._brain = NativeBrain(self.graph_path)
         self._id_to_index = {int(identifier): index for index, identifier in enumerate(self._brain.ids)}
         self._retina_id_to_position = {int(self._brain.ids[index]): position for position, index in enumerate(self._brain.retina)}
         self._pending_current = np.zeros(self._brain.n, dtype=np.float32)
         self._pending_luminance = np.zeros(len(self._brain.retina), dtype=np.float32)
+        self._metal = None
+        if self.backend == "metal":
+            from gpu.metal_v5 import MetalFastV5
+            self._metal = MetalFastV5(self._brain.ptr, self._brain.post, self._brain.weight, width=1024)
+            self._metal.load({"v": self._brain.v, "g": self._brain.g, "refractory": self._brain.refractory,
+                "drive": self._brain.drive, "previous_drive": self._brain.previous_drive, "queue": self._brain.queue,
+                "queue_count": self._brain.queue_count, "counts": self._brain.counts, "flags": self._brain.active_flag,
+                "last": self._brain.last, "clock": self._brain.cursor})
 
     @property
     def neuron_count(self) -> int:
@@ -90,6 +100,12 @@ class MaleCNSBrain:
     def reset(self) -> None:
         """Restore a fresh fixed-weight native state; graph and kernel are unchanged."""
         self._new_runtime()
+
+    def close(self) -> None:
+        """Release optional accelerator resources."""
+        if self._metal is not None:
+            self._metal.close()
+            self._metal = None
 
     def _indices(self, neuron_ids: Iterable[int]) -> tuple[list[int], np.ndarray]:
         ids = [int(identifier) for identifier in neuron_ids]
@@ -147,7 +163,8 @@ class MaleCNSBrain:
         steps = int(round(duration_ms / self._brain.dt))
         if steps < 1:
             raise ValueError(f"duration_ms must be at least {self._brain.dt} ms")
-        self._activate(np.flatnonzero(self._pending_current))
+        if self.backend == "cpu":
+            self._activate(np.flatnonzero(self._pending_current))
         # NativeBrain.step's unmodified input setup, plus declared external current.
         self._brain.luminance += (1 - math.exp(-steps * self._brain.dt / 10)) * (np.clip(self._pending_luminance, 0, 1) - self._brain.luminance)
         self._brain.drive.fill(0)
@@ -155,21 +172,32 @@ class MaleCNSBrain:
         self._brain.drive[self._brain.retina] = 30 * self._brain.luminance / (0.02 + self._brain.luminance)
         self._brain.drive += self._pending_current
         self._brain.counts.fill(0)
-        clock = np.asarray([self._brain.cursor], dtype=np.int64)
-        arrays = [self._brain.ptr, self._brain.post, self._brain.weight, self._brain.v, self._brain.g, self._brain.refractory, self._brain.drive, self._brain.previous_drive, self._brain.queue, self._brain.queue_count, clock]
         started = time.perf_counter()
-        _f(self._brain.n, *[array.ctypes.data for array in arrays], steps, self._brain.dt, *[array.ctypes.data for array in [self._brain.counts, self._brain.active, self._brain.active_flag, self._brain.nactive, self._brain.last]])
+        if self.backend == "cpu":
+            clock = np.asarray([self._brain.cursor], dtype=np.int64)
+            arrays = [self._brain.ptr, self._brain.post, self._brain.weight, self._brain.v, self._brain.g, self._brain.refractory, self._brain.drive, self._brain.previous_drive, self._brain.queue, self._brain.queue_count, clock]
+            _f(self._brain.n, *[array.ctypes.data for array in arrays], steps, self._brain.dt, *[array.ctypes.data for array in [self._brain.counts, self._brain.active, self._brain.active_flag, self._brain.nactive, self._brain.last]])
+            self._brain.cursor = int(clock[0])
+            spikes = int(self._brain.counts.sum())
+        else:
+            self._metal.set_drive(self._brain.drive)
+            self._metal.zero_spike_counts()
+            self._metal.step_batch(steps)
+            self._brain.cursor += steps
+            spikes = self._metal.total_spikes()
         elapsed_s = time.perf_counter() - started
-        self._brain.cursor = int(clock[0])
-        self._brain.total_spikes += int(self._brain.counts.sum())
+        self._brain.total_spikes += spikes
         self._brain.sim_ms += steps * self._brain.dt
         self._pending_current.fill(0)
         self._pending_luminance.fill(0)
-        return {"sim_ms": self._brain.sim_ms, "spikes": int(self._brain.counts.sum()), "wall_seconds": elapsed_s}
+        return {"sim_ms": self._brain.sim_ms, "spikes": spikes, "wall_seconds": elapsed_s, "backend": self.backend}
 
     def read(self, neuron_ids: Iterable[int]) -> dict[int, dict[str, float | int]]:
         """Return generic fixed-baseline spike count and membrane voltage by body ID."""
         ids, indices = self._indices(neuron_ids)
+        if self.backend == "metal":
+            counts, voltages = self._metal.read(indices)
+            return {identifier: {"spikes": int(count), "voltage_mv": float(voltage)} for identifier, count, voltage in zip(ids, counts, voltages)}
         return {identifier: {"spikes": int(self._brain.counts[index]), "voltage_mv": float(self._brain.v[index])} for identifier, index in zip(ids, indices)}
 
     def _checkpoint_identity(self):
@@ -178,6 +206,8 @@ class MaleCNSBrain:
 
     def save_checkpoint(self, directory: Path | str) -> str:
         """Pass through DoomFly's hash-checked fixed-baseline checkpoint format."""
+        if self.backend == "metal":
+            raise NotImplementedError("Metal checkpoint export is not implemented; use the CPU reference backend")
         from doom.checkpoint import Checkpoints
         from doom.engine import NeuralControls
         if np.any(self._pending_current) or np.any(self._pending_luminance):
@@ -186,6 +216,8 @@ class MaleCNSBrain:
 
     def load_checkpoint(self, directory: Path | str) -> dict:
         """Restore through DoomFly validation logic; only fixed baseline is accepted."""
+        if self.backend == "metal":
+            raise NotImplementedError("Metal checkpoint restore is not implemented; use the CPU reference backend")
         from doom.checkpoint import Checkpoints
         from doom.engine import NeuralControls
         restored = Checkpoints(Path(directory), self._checkpoint_identity()).restore(self._brain, NeuralControls([], mode="bci"), _AdapterCheckpointGame())

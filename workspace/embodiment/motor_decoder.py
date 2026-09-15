@@ -84,3 +84,71 @@ class DescendingMotorDecoder:
 
     def reset(self):
         self._turn = 0.0
+
+
+class LeakyIntegratorDecoder:
+    """Timing-aware descending-neuron readout (diagnostics-justified).
+
+    The neural probe showed the fixed connectome carries left/right shot
+    direction to the descending neurons (DNp20, DNpe017) ONLY in the TIMING of
+    their spikes across the ~120 ms approach, not in a 20 ms total spike count
+    (which is at chance). A leaky temporal integral of the right-vs-left DN
+    activity contrast separates left from right shots (permutation p < 0.001).
+
+    This decoder implements exactly that interpretable, causal, online feature:
+    a leaky integrator of (sum right DNs - sum left DNs), mapped to a lateral
+    strafe command. It uses ONLY descending spike counts - no ball state, no
+    trained classifier, no privileged information. The single calibrated
+    quantity is `sign`, which fixes the polarity found in the probe (left shots
+    produce a higher integrated contrast).
+
+    ENGINEERED: the time constant `tau`, gain, deadband, saturation, and sign.
+    BIOLOGICAL: the neuron identities and their spikes.
+    """
+
+    LEFT_IDS = (10162, 10527)     # DNp20_L, DNpe017_L
+    RIGHT_IDS = (10059, 555871)   # DNp20_R, DNpe017_R
+
+    def __init__(self, left_ids=None, right_ids=None, tau=5.0, gain=0.6,
+                 deadband=0.15, sign=-1.0, baseline_subtract=False):
+        self.left_ids = tuple(left_ids) if left_ids else self.LEFT_IDS
+        self.right_ids = tuple(right_ids) if right_ids else self.RIGHT_IDS
+        self.tau = float(tau)          # leak time constant, in decision windows
+        self.gain = float(gain)
+        self.deadband = float(deadband)
+        self.sign = float(sign)        # polarity calibrated from the probe
+        # If set, subtract a slow running mean of the contrast so a constant
+        # baseline firing asymmetry (present even when blind) cannot drive a
+        # standing strafe bias; only DEVIATIONS from baseline move the fly.
+        self.baseline_subtract = bool(baseline_subtract)
+        self._integral = 0.0
+        self._baseline = 0.0
+
+    def readout_ids(self):
+        return list(dict.fromkeys(self.left_ids + self.right_ids))
+
+    def decode(self, activity: dict):
+        left = float(sum(activity[i]["spikes"] for i in self.left_ids))
+        right = float(sum(activity[i]["spikes"] for i in self.right_ids))
+        inst = right - left
+        if self.baseline_subtract:
+            # slow running mean (tau ~ 10x the integrator) removes constant bias
+            self._baseline = 0.98 * self._baseline + 0.02 * inst
+            inst = inst - self._baseline
+        a = np.exp(-1.0 / self.tau)
+        self._integral = a * self._integral + inst
+        signal = self.sign * self.gain * self._integral
+        lateral = 0.0
+        if abs(signal) > self.deadband:
+            lateral = float(np.clip(signal, -1, 1))
+        move = "LEFT" if lateral > 0.05 else "RIGHT" if lateral < -0.05 else "STAY"
+        gait_on = 1.0 if abs(lateral) > 1e-3 else 0.0
+        command = {"forward": 0.0, "lateral": lateral, "turn": 0.0,
+                   "gait_on": gait_on, "move": move}
+        diagnostics = {"left_spikes": left, "right_spikes": right,
+                       "integral": round(self._integral, 3), "lateral": lateral}
+        return command, diagnostics
+
+    def reset(self):
+        self._integral = 0.0
+        self._baseline = 0.0

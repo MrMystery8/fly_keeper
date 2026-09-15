@@ -52,11 +52,16 @@ def run(controller_name, episodes, seed, *, condition="normal", group="all",
         from adapters.brain import MaleCNSBrain
         brain = MaleCNSBrain(backend=backend)
         vision = VisionBridge(world.fly, brain, camera="eye_left", condition=condition)
-        left = (decoder_ids or {}).get("left", [10162])
-        right = (decoder_ids or {}).get("right", [10059])
-        decoder = DescendingMotorDecoder(left_ids=left, right_ids=right,
-                                         turn_gain=2.5, forward_bias=0.25,
-                                         smoothing=0.5)
+        decoder_kind = (decoder_ids or {}).get("kind", "dnp20")
+        if decoder_kind == "leaky":
+            from embodiment.motor_decoder import LeakyIntegratorDecoder
+            decoder = LeakyIntegratorDecoder()
+        else:
+            left = (decoder_ids or {}).get("left", [10162])
+            right = (decoder_ids or {}).get("right", [10059])
+            decoder = DescendingMotorDecoder(left_ids=left, right_ids=right,
+                                             turn_gain=2.5, forward_bias=0.25,
+                                             smoothing=0.5)
     controller = build_controller(controller_name, brain=brain,
                                   vision_bridge=vision, decoder=decoder,
                                   goal_line_x=GOAL_LINE_X, seed=seed)
@@ -170,6 +175,8 @@ def main():
     p.add_argument("--condition", choices=CONDITIONS, default="normal")
     p.add_argument("--group", choices=["all", *GROUPS], default="all")
     p.add_argument("--backend", choices=["cpu", "metal"], default="cpu")
+    p.add_argument("--decoder", choices=["dnp20", "leaky"], default="dnp20",
+                   help="dnp20 = original 20ms total-count; leaky = timing-aware integrator")
     p.add_argument("--record", type=str, default=None, help="path to save an mp4 demo")
     p.add_argument("--visualizer", action="store_true")
     args = p.parse_args()
@@ -183,7 +190,7 @@ def main():
     rows, decisions, summary = run(
         args.controller, args.episodes, args.seed, condition=args.condition,
         group=args.group, backend=args.backend, telemetry=telemetry,
-        record=args.record)
+        record=args.record, decoder_ids={"kind": args.decoder})
 
     out = ROOT / "workspace" / "outputs" / "embodied_flykeeper" / uuid.uuid4().hex
     out.mkdir(parents=True)

@@ -111,7 +111,8 @@ def eval_simple(kind, shots, seed=7):
 
 
 # ------------------------------------------------------------- neural controllers
-def build_bridge(model_path, gain=1.0, n_neurons=None, feature_idx=None):
+def build_bridge(model_path, gain=1.0, n_neurons=None, feature_idx=None,
+                 cmd_smoothing=0.0):
     model = LinearBridgeModel.load(model_path)
     meta = getattr(model, "loaded_metadata", {})
     man = np.load(OUT / "visual_manifest.npz")
@@ -119,7 +120,8 @@ def build_bridge(model_path, gain=1.0, n_neurons=None, feature_idx=None):
     gi = man["graph_index"][:k].astype(np.int64)
     ex = VisualFeatureExtractor(gi, n_windows=meta.get("n_windows", 4))
     basis = DNMotorBasis()
-    return LearnedBridge(ex, model, basis, gain=gain, enabled=True), meta
+    return LearnedBridge(ex, model, basis, gain=gain, enabled=True,
+                         cmd_smoothing=cmd_smoothing), meta
 
 
 def eval_neural(shots, *, bridge=None, condition="normal", enabled=True,
@@ -210,7 +212,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--per-group", type=int, default=16)
     p.add_argument("--base-seed", type=int, default=90000)
-    p.add_argument("--gain", type=float, default=1.0)
+    p.add_argument("--gain", type=float, default=None,
+                   help="override frozen gain (default: use frozen metadata)")
     p.add_argument("--model", type=str, default="bridge_model.npz")
     p.add_argument("--controls", action="store_true",
                    help="run blind/mirrored/shuffled/bridge_off controls")
@@ -241,9 +244,16 @@ def main():
     result["natural"]["behaviour"] = behavioural_metrics(rows)
     print(f"  {'natural':>10}: {result['natural']['save_rate']}")
 
-    # --- learned bridge (normal)
-    bridge, meta = build_bridge(OUT / a.model, gain=a.gain)
+    # --- learned bridge (normal). Gain + command smoothing are FROZEN in the
+    # model metadata (selected on validation seeds, never on the test set).
+    _m = LinearBridgeModel.load(OUT / a.model)
+    fm = getattr(_m, "loaded_metadata", {})
+    gain = a.gain if a.gain is not None else fm.get("runtime_gain", 1.0)
+    smoothing = fm.get("cmd_smoothing", 0.0)
+    print(f"  [frozen] gain={gain} cmd_smoothing={smoothing}")
+    bridge, meta = build_bridge(OUT / a.model, gain=gain, cmd_smoothing=smoothing)
     result["bridge_meta"] = meta
+    result["frozen_runtime"] = dict(gain=gain, cmd_smoothing=smoothing)
     rows = eval_neural(shots, bridge=bridge, condition="normal", enabled=True)
     result["bridge_normal"] = summarize(rows)
     result["bridge_normal"]["behaviour"] = behavioural_metrics(rows)
@@ -254,13 +264,13 @@ def main():
 
     if a.controls:
         for cond in ("blind", "mirrored", "shuffled"):
-            bridge, _ = build_bridge(OUT / a.model, gain=a.gain)
+            bridge, _ = build_bridge(OUT / a.model, gain=gain, cmd_smoothing=smoothing)
             rows = eval_neural(shots, bridge=bridge, condition=cond, enabled=True)
             result[f"bridge_{cond}"] = summarize(rows)
             result[f"bridge_{cond}"]["behaviour"] = behavioural_metrics(rows)
             print(f"  bridge/{cond}: {result[f'bridge_{cond}']['save_rate']}")
         # bridge OFF (disabled) = must reproduce natural
-        bridge, _ = build_bridge(OUT / a.model, gain=a.gain)
+        bridge, _ = build_bridge(OUT / a.model, gain=gain, cmd_smoothing=smoothing)
         rows = eval_neural(shots, bridge=bridge, condition="normal", enabled=False)
         result["bridge_off"] = summarize(rows)
         result["bridge_off"]["behaviour"] = behavioural_metrics(rows)

@@ -144,29 +144,44 @@ class LearnedBridge:
     """
 
     def __init__(self, extractor: VisualFeatureExtractor, model: LinearBridgeModel,
-                 basis: DNMotorBasis, gain=1.0, enabled=True):
+                 basis: DNMotorBasis, gain=1.0, enabled=True, cmd_smoothing=0.0):
         self.extractor = extractor
         self.model = model
         self.basis = basis
         self.gain = float(gain)
         self.enabled = bool(enabled)
+        # Optional causal EMA on the scalar command u. The offline diagnostic
+        # showed the per-window model output is directionally correct but noisy
+        # (occasional sign flips), which dilutes sustained lateral drive; a
+        # short EMA gives the fixed DNs a cleaner sustained command WITHOUT
+        # touching any downstream mechanics. 0.0 = no smoothing (raw per-window).
+        self.cmd_smoothing = float(cmd_smoothing)
         self._last_u = 0.0
+        self._u_ema = 0.0
 
     def reset(self):
         self.extractor.reset()
         self._last_u = 0.0
+        self._u_ema = 0.0
 
     def observe(self, brain):
         self.extractor.observe(brain)
 
     def command(self):
         """Scalar lateral command u in [-1,1] from current features (bridge ON).
-        Returns 0.0 when disabled."""
+        Returns 0.0 when disabled. Applies optional causal EMA smoothing."""
         if not self.enabled:
             self._last_u = 0.0
+            self._u_ema = 0.0
             return 0.0
         x = self.extractor.features(order=self.model.feature_order)
-        self._last_u = self.model.predict(x)
+        u_raw = self.model.predict(x)
+        if self.cmd_smoothing > 0.0:
+            a = self.cmd_smoothing
+            self._u_ema = a * self._u_ema + (1.0 - a) * u_raw
+            self._last_u = self._u_ema
+        else:
+            self._last_u = u_raw
         return self._last_u
 
     def inject(self, brain, u=None):

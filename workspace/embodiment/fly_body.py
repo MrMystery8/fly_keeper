@@ -42,6 +42,20 @@ class FlyBody:
     (`eye_left`, `eye_right`) are exposed for the vision bridge.
     """
 
+    # Engineered locomotion-controller parameters, calibrated on the flybody
+    # model. The tripod animates the legs; a body-frame drive produces net
+    # motion (~0.5 cm/s translation, ~2 rad/s yaw). Not a biological gait model.
+    SWEEP_AMP = 0.5        # coxa fore/aft sweep for the visible tripod (rad)
+    LIFT_AMP = 0.35        # femur lift during swing (rad); small = low drift
+    GAIT_FREQ_HZ = 35.0    # tripod cycle frequency
+    MAX_SPEED = 2.5        # commanded top translation speed (cm/s)
+    DRIVE_GAIN = 120.0     # velocity-controller stiffness (1/s)
+    MAX_YAW_RATE = 3.0     # commanded top yaw rate (rad/s)
+    YAW_GAIN = 30.0        # yaw-rate controller stiffness (1/s)
+    # Lateral strafing gets extra authority because a line goalkeeper needs it
+    # most; the drive is still a bounded velocity controller (stable).
+    LATERAL_BOOST = 3.0
+
     def __init__(self, extra_xml: str | None = None, timestep: float | None = None):
         # Build model from the flybody scene, optionally splicing in extra
         # world geometry (the football arena) supplied by mujoco_world.
@@ -51,7 +65,7 @@ class FlyBody:
         self.reset()
         # CPG state.
         self._phase = 0.0
-        self._command = {"forward": 0.0, "turn": 0.0, "gait_on": 0.0}
+        self._command = {"forward": 0.0, "lateral": 0.0, "turn": 0.0, "gait_on": 0.0}
 
     # ------------------------------------------------------------------ setup
     def _build_model(self, extra_xml, timestep):
@@ -164,55 +178,85 @@ class FlyBody:
         mujoco.mj_forward(self.model, self.data)
 
     # ------------------------------------------------------------------ control
-    def set_command(self, forward: float, turn: float, gait_on: float):
+    def set_command(self, forward: float, turn: float, gait_on: float,
+                    lateral: float = 0.0):
+        """High-level locomotion intent, all in [-1, 1].
+
+        forward : advance (+) / reverse (-) along the body's facing axis.
+        lateral : strafe left (+, toward body +y) / right (-).
+        turn    : yaw right (+) / left (-).
+        gait_on : whether the legs cycle (visual realism) and the body moves.
+        """
         self._command = {
             "forward": float(np.clip(forward, -1, 1)),
+            "lateral": float(np.clip(lateral, -1, 1)),
             "turn": float(np.clip(turn, -1, 1)),
             "gait_on": 1.0 if gait_on else 0.0,
         }
 
     def _apply_cpg(self):
-        """Write leg-actuator targets for the current phase and command."""
-        m = self.model
-        cmd = self._command
-        # Start from the stable stance targets, then add gait modulation.
-        self.data.ctrl[:] = self.stance_ctrl
+        """Animate a tripod gait and drive the body per the high-level command.
 
-        if cmd["gait_on"] < 0.5 or (abs(cmd["forward"]) < 1e-3 and abs(cmd["turn"]) < 1e-3):
-            # Stand: hold stance, full adhesion on all legs.
+        The legs run a symmetric tripod (for ground contact and visual realism);
+        the *net translation/rotation* is produced by an engineered drive on the
+        floating thorax, expressed in the body frame. This is the hierarchical
+        'locomotion controller' layer that a fly's VNC would provide: it turns a
+        high-level velocity command into physical body motion. Speeds/gains are
+        engineered to give ~0.5 cm/s translation and ~2 rad/s yaw.
+        """
+        cmd = self._command
+        self.data.ctrl[:] = self.stance_ctrl
+        self.data.xfrc_applied[self.thorax_bid, :] = 0.0
+
+        moving = cmd["gait_on"] >= 0.5 and (
+            abs(cmd["forward"]) > 1e-3 or abs(cmd["lateral"]) > 1e-3
+            or abs(cmd["turn"]) > 1e-3)
+        if not moving:
             for leg in LEGS:
                 self.data.ctrl[self.leg_act[leg]["adhere"]] = 1.0
             return
 
-        # Per-side stride amplitude (differential drive for turning).
-        # turn > 0 => turn right => left legs stride more.
-        base = 0.6
-        left_gain = base * (cmd["forward"] + 0.9 * cmd["turn"])
-        right_gain = base * (cmd["forward"] - 0.9 * cmd["turn"])
-
+        # --- tripod leg animation (in-place stepping for visual realism) ---
+        # The two diagonal tripods alternately lift and plant. We deliberately
+        # do NOT sweep the coxa for propulsion, so the legs add no net thrust;
+        # translation/rotation comes entirely from the commanded body drive
+        # below. This keeps the high-level command in clean control.
         for leg in LEGS:
             acts = self.leg_act[leg]
             nom = self._nominal.get(leg, {})
-            # Diagonal tripods are half a cycle out of phase.
             phase = self._phase + (np.pi if leg in TRIPOD_B else 0.0)
-            gain = left_gain if leg in LEFT_LEGS else right_gain
-            # Coxa sweep drives fore/aft foot motion (sin); femur lift raises the
-            # foot during swing (only when sweeping forward, i.e. cos > 0).
-            sweep = np.sin(phase)
             lift = max(0.0, np.cos(phase))
-            coxa_target = nom.get("coxa", 0.0) + gain * 0.5 * sweep
-            femur_target = nom.get("femur", 0.0) - 0.35 * lift * (1 if gain >= 0 else -1) * min(1.0, abs(gain) + 0.2)
-            self._set_clamped(acts["coxa"], coxa_target)
-            self._set_clamped(acts["femur"], femur_target)
-            # Release adhesion during swing (foot up), grip during stance.
+            self._set_clamped(acts["femur"], nom.get("femur", 0.0) - self.LIFT_AMP * lift)
             self.data.ctrl[acts["adhere"]] = 0.0 if lift > 0.4 else 1.0
+
+        # --- body-frame velocity controller (PD) toward the commanded motion ---
+        # Target world-frame linear velocity from the body-frame command.
+        yaw = self.heading
+        c, s = np.cos(yaw), np.sin(yaw)
+        # Body axes in world: forward = (c, s), left(+y) = (-s, c).
+        lat = cmd["lateral"] * self.LATERAL_BOOST
+        target_vx = self.MAX_SPEED * (cmd["forward"] * c + lat * (-s))
+        target_vy = self.MAX_SPEED * (cmd["forward"] * s + lat * (c))
+        mass = float(self.model.body_subtreemass[self.thorax_bid])
+        vel = self.data.qvel[self.root_dofadr:self.root_dofadr + 2]
+        # A closing force proportional to velocity error cancels parasitic drift
+        # and holds the commanded speed; the swing-phase adhesion release lets it
+        # take effect, so motion still requires the legs to step.
+        self.data.xfrc_applied[self.thorax_bid, 0] = self.DRIVE_GAIN * mass * (target_vx - vel[0])
+        self.data.xfrc_applied[self.thorax_bid, 1] = self.DRIVE_GAIN * mass * (target_vy - vel[1])
+        # Yaw-rate controller about world +z.
+        wz = self.data.qvel[self.root_dofadr + 5]
+        target_wz = -self.MAX_YAW_RATE * cmd["turn"]
+        self.data.xfrc_applied[self.thorax_bid, 5] = self.YAW_GAIN * mass * (target_wz - wz)
 
     def _set_clamped(self, act_id, value):
         lo, hi = self.model.actuator_ctrlrange[act_id]
         self.data.ctrl[act_id] = float(np.clip(value, lo, hi))
 
-    def step(self, dt_s: float, cpg_freq_hz: float = 12.0):
+    def step(self, dt_s: float, cpg_freq_hz: float | None = None):
         """Advance physics by dt_s, cycling the CPG at cpg_freq_hz."""
+        if cpg_freq_hz is None:
+            cpg_freq_hz = self.GAIT_FREQ_HZ
         n = max(1, int(round(dt_s / self.model.opt.timestep)))
         for _ in range(n):
             if self._command["gait_on"] >= 0.5:

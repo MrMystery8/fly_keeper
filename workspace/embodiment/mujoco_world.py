@@ -32,8 +32,8 @@ from .fly_body import FlyBody
 GOAL_HALF_WIDTH = 1.6     # posts at y = +/- 1.6 cm  (goal mouth 3.2 cm wide)
 GOAL_HEIGHT = 1.4         # crossbar height
 GOAL_LINE_X = -0.3        # ball center crossing this x (inside posts) = GOAL
-SHOT_X = 5.0              # ball spawn distance in front of goal
-BALL_RADIUS = 0.5         # large, salient ball (see note above)
+SHOT_X = 3.2              # ball spawn distance in front of goal
+BALL_RADIUS = 0.45        # large, salient ball (see note above)
 BALL_MASS = 0.02          # light so the tiny fly can perturb it
 POST_RADIUS = 0.12
 
@@ -64,7 +64,7 @@ def _arena_xml() -> str:
     <body name="ball" pos="{SHOT_X} 0 {BALL_RADIUS}">
       <freejoint name="ball_free"/>
       <geom name="ball" type="sphere" material="ballmat" size="{BALL_RADIUS}"
-            mass="{BALL_MASS}" friction="0.6 0.02 0.001"/>
+            mass="{BALL_MASS}" friction="0.05 0.005 0.0001"/>
     </body>
   </worldbody>
 """
@@ -123,11 +123,15 @@ class GoalkeeperWorld:
     def sample_shot(self, group=None) -> ShotSpec:
         if group is None:
             group = str(self.rng.choice(["left", "center", "right"]))
-        # Aim point at the goal line, within the posts.
-        aim = {"left": 1.05, "center": 0.0, "right": -1.05}[group]
-        aim += float(self.rng.uniform(-0.25, 0.25))
-        speed = float(self.rng.uniform(10.0, 16.0))
-        height = float(self.rng.uniform(BALL_RADIUS, 0.9))
+        # Aim point at the goal line, within the posts. Lateral aim and shot
+        # speed are chosen so the fly's ~0.45 cm/s walking range can plausibly
+        # reach the ball within the flight time (an engineered balance so the
+        # control problem is observable, not a biological claim).
+        aim = {"left": 0.55, "center": 0.0, "right": -0.55}[group]
+        aim += float(self.rng.uniform(-0.12, 0.12))
+        speed = float(self.rng.uniform(4.5, 6.0))
+        # Low, rolling ball so the grounded fly can physically intercept it.
+        height = BALL_RADIUS
         return ShotSpec(group, aim, speed, height)
 
     # --------------------------------------------------------------- episode
@@ -176,11 +180,12 @@ class GoalkeeperWorld:
                     self._contact = True
 
     def _check_outcome(self):
-        """Decide SAVE/GOAL when the ball reaches the goal-line plane."""
+        """Decide SAVE/GOAL from the ball's motion near the goal-line plane."""
         if self._result is not None:
             return
         ball = self._observe_ball()
         x, y, z = ball["pos"]
+        vx = ball["vel"][0]
         # Ball has crossed the goal line plane.
         if x <= GOAL_LINE_X:
             inside = abs(y) <= GOAL_HALF_WIDTH and z <= GOAL_HEIGHT
@@ -188,8 +193,9 @@ class GoalkeeperWorld:
                 self._result = "GOAL"
             else:
                 self._result = "SAVE"
-        # Ball deflected back out past the shot line without scoring => SAVE.
-        elif x > SHOT_X + 0.5 and self._contact:
+        # Contacted the fly/frame and is no longer heading goalward => SAVE
+        # (stopped or deflected back out before crossing the line).
+        elif self._contact and vx > -0.5:
             self._result = "SAVE"
 
     def step(self, dt_s):

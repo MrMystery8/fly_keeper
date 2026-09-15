@@ -65,22 +65,21 @@ class DescendingMotorDecoder:
         else:
             move = "STAY"
 
-        turn = 0.0
+        # Map the left/right descending asymmetry to a LATERAL strafe command.
+        # move==LEFT (left DNs win) => strafe toward the fly's +y (its left).
+        # Sign convention: lateral > 0 strafes toward body +y.
+        lateral_raw = 0.0
         if abs(asym) > self.deadband:
-            turn = float(np.clip(self.turn_gain * asym, -1, 1))
+            # asym > 0 means RIGHT-side DNs dominate => strafe right (lateral<0).
+            lateral_raw = float(np.clip(-self.turn_gain * asym, -1, 1))
         # Exponential smoothing keeps the body from jittering frame to frame.
-        self._turn = (1 - self.smoothing) * self._turn + self.smoothing * turn
+        self._turn = (1 - self.smoothing) * self._turn + self.smoothing * lateral_raw
 
-        forward = self.forward_bias
-        if self.forward_ids:
-            drive = float(sum(activity[i]["spikes"] for i in self.forward_ids))
-            forward = float(np.clip(self.forward_bias + 0.05 * drive, 0, 1))
-
-        gait_on = 1.0 if (abs(self._turn) > 1e-3 or forward > 1e-3) else 0.0
-        command = {"forward": forward, "turn": self._turn, "gait_on": gait_on,
-                   "move": move}
+        gait_on = 1.0 if abs(self._turn) > 1e-3 else 0.0
+        command = {"forward": 0.0, "lateral": self._turn, "turn": 0.0,
+                   "gait_on": gait_on, "move": move}
         diagnostics = {"left_spikes": left, "right_spikes": right,
-                       "asymmetry": asym, "turn": self._turn, "forward": forward}
+                       "asymmetry": asym, "lateral": self._turn}
         return command, diagnostics
 
     def reset(self):

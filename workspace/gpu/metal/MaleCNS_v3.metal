@@ -65,6 +65,30 @@ kernel void v3_mark_segments(device const ulong *keys [[buffer(0)]],
   heads[i]=uchar(i==0 || uint(keys[i]>>32)!=uint(keys[i-1]>>32));
 }
 
+// Correctness-first device-resident segment compaction.  The sorted worklist
+// remains on GPU; later versions may replace this scalar scan with a hierarchy
+// without changing its deterministic output contract.
+kernel void v3_compact_segments(device const ulong *keys [[buffer(0)]],
+                                device const uchar *heads [[buffer(1)]],
+                                device uint *targets [[buffer(2)]],
+                                device uint *starts [[buffer(3)]],
+                                device uint *ends [[buffer(4)]],
+                                device uint *segment_count [[buffer(5)]],
+                                device const V3Control *control [[buffer(6)]],
+                                uint tid [[thread_position_in_grid]]) {
+  if(tid) return;
+  uint out=0, n=control->edge_count;
+  for(uint i=0;i<n;i++) if(heads[i]) { if(out) ends[out-1]=i; targets[out]=uint(keys[i]>>32); starts[out++]=i; }
+  if(out) ends[out-1]=n; segment_count[0]=out;
+}
+
+// Stable ordered compaction is used for wake reconstruction and spike lists.
+kernel void v3_stable_compact(device const int *ids [[buffer(0)]], device const uchar *flags [[buffer(1)]],
+                              device int *out_ids [[buffer(2)]], device uint *out_count [[buffer(3)]],
+                              constant uint &count [[buffer(4)]], uint tid [[thread_position_in_grid]]) {
+  if(tid) return; uint out=0; for(uint i=0;i<count;i++) if(flags[i]) out_ids[out++]=ids[i]; out_count[0]=out;
+}
+
 // Four-bit least-significant-digit radix pass.  The bridge dispatches these
 // three kernels for shifts 0..60.  Payload is the original packed-edge index;
 // all associated arrays remain indexed by it, avoiding payload drift.

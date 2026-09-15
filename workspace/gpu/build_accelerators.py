@@ -20,6 +20,11 @@ def main():
         str(root / "metal" / "bridge_v2.mm"), "-framework", "Foundation", "-framework", "Metal",
         "-o", str(out / "libmalecns_metal_v2.dylib"),
     ], check=True, env=env)
+    subprocess.run([
+        "xcrun", "clang++", "-std=c++17", "-fobjc-arc", "-dynamiclib",
+        str(root / "metal" / "bridge_v3.mm"), "-framework", "Foundation", "-framework", "Metal",
+        "-o", str(out / "libmalecns_metal_v3.dylib"),
+    ], check=True, env=env)
 
 
 if __name__ == "__main__":

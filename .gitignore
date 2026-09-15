@@ -21,3 +21,5 @@ workspace/vendor/mujoco_menagerie_flybody/
 # generated embodied run artifacts and recordings
 workspace/outputs/embodied_flykeeper/
 *.mp4
+# MuJoCo runtime log
+MUJOCO_LOG.TXT

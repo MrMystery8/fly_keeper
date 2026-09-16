@@ -58,6 +58,8 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         self._post_contact_velocity = None
         self._ball_no_gravity = False
         self._loft_vz = 0.0
+        self._stall_steps = 0               # consecutive not-approaching steps
+        self._terminal_step = None          # step at which the shot resolved
 
     # ------------------------------------------------------------- shots
     def sample_shot(self, group=None, height_frac=None) -> ShotSpec:
@@ -222,6 +224,19 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         self.data.qvel[self._ball_dofadr + 2] = float(new_v[2])
         self._ball_no_gravity = False   # gravity resumes on the deflected ball
 
+    # A shot stops being "live" once the ball is no longer approaching the goal
+    # (vx not clearly goalward) while still in front of the line. Some lofted
+    # shots hit the crossbar/post and stall in the goal mouth (x ~ +0.1..0.5,
+    # vx -> ~0) without ever crossing x <= GOAL_LINE_X; the original two branches
+    # never fired, so the episode padded to MAX_DECISIONS. We treat a persistent
+    # stall as terminal so no shot runs forever and NO post-resolution frame is
+    # collected. (This closes the stale-dataset padding bug.)
+    _STALL_SPEED = 1.2            # total ball speed (cm/s) below which the shot
+    #                               has lost its energy (dead / post-deflection
+    #                               creep) and is no longer a live shot.
+    _STALL_STEPS_TERMINAL = 5     # consecutive dead-speed steps -> resolved
+    _AWAY_VX = 0.3                # clearly moving back up-field
+
     # ------------------------------------------------------------- scoring
     def _check_outcome(self):
         """Authoritative goal-line scoring (independent of keeper contact).
@@ -230,7 +245,11 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         crossbar is a GOAL -- even if the keeper touched it (touch-but-goal).
         A ball that crosses outside the posts / above the bar is a miss (SAVE,
         not conceded). A touched ball that is clearly moving away from goal and
-        safely non-threatening is a deflected SAVE.
+        safely non-threatening is a deflected SAVE. A ball that is no longer a
+        live goalward threat but never crossed the line (stalled in front of the
+        goal, e.g. deflected by the crossbar/post) resolves as SAVE once the
+        stall persists -- it was kept out. This guarantees every shot reaches a
+        terminal state and the dataset is never padded past resolution.
         """
         if self._result is not None:
             return
@@ -245,12 +264,46 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
             else:
                 self._result = "SAVE"          # wide / over the bar
                 self._deflected_save = bool(self._keeper_contact)
-        elif self._keeper_contact and vx > 0.3 and x > 0.6:
+        elif self._keeper_contact and vx > self._AWAY_VX and x > 0.6:
             # deflected clearly back up-field and away from goal -> safe SAVE
             self._result = "SAVE"
             self._deflected_save = True
+        else:
+            # STALL detection: the ball is in front of the line but has lost its
+            # shot energy (a lofted ball deflected by the crossbar/post that
+            # dribbles slowly). A persistent low-speed state means the shot is
+            # dead; resolve it by its position -- if it has effectively reached
+            # the mouth inside the posts it is a (creeping) GOAL, otherwise it
+            # was kept out (SAVE). This is a degenerate arcade-loft artifact, not
+            # a live shot, so we stop here rather than collect dead frames.
+            speed = float(np.linalg.norm(ball["vel"]))
+            if x > GOAL_LINE_X and speed < self._STALL_SPEED:
+                self._stall_steps += 1
+            else:
+                self._stall_steps = 0
+            if self._stall_steps >= self._STALL_STEPS_TERMINAL:
+                creeping_in = (x <= GOAL_LINE_X + 0.25 and vx < 0
+                               and abs(y) <= GOAL_HALF_WIDTH and z <= GOAL_HEIGHT)
+                if creeping_in:
+                    self._result = "GOAL"
+                    self._touch_but_goal = bool(self._keeper_contact)
+                else:
+                    self._result = "SAVE"      # dead in front of goal, kept out
+                    self._deflected_save = bool(self._keeper_contact)
+        if self._result is not None and self._terminal_step is None:
+            self._terminal_step = int(self._step_count)
 
     # ------------------------------------------------------------ diagnostics
+    @property
+    def shot_live(self):
+        """True while the shot has not resolved (no terminal result yet)."""
+        return self._result is None
+
+    @property
+    def terminal_step(self):
+        """Step index at which the shot resolved (None until it does)."""
+        return self._terminal_step
+
     @property
     def keeper_contact(self):
         return self._keeper_contact
@@ -266,6 +319,7 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
             touch_but_goal=self._touch_but_goal,
             deflected_save=self._deflected_save,
             untouched_goal=bool(self._result == "GOAL" and not self._keeper_contact),
+            terminal_step=self._terminal_step,
             contact_time=self._contact_time,
             contact_position=self._contact_position,
             pre_contact_velocity=self._pre_contact_velocity,

@@ -74,7 +74,17 @@ def teacher_command(world):
     ball = world._observe_ball()
     bx, by, bz = ball["pos"]
     vx, vy, vz = ball["vel"]
-    g = float(world.model.opt.gravity[2])
+    # Predict the goal-line crossing under the SAME physics the arcade world
+    # actually simulates. For a lofted shot the world cancels gravity on the
+    # ball (straight-line rise at constant vz, see ArcadeGoalkeeperWorld.step),
+    # so the correct model is z_cross = bz + vz*t -- NOT a ballistic arc. Using
+    # -981 cm/s^2 here (as the frozen teacher did) drives z_cross hugely
+    # negative for a lofted ball, collapsing u_vert to ~0; that only appeared to
+    # work in v1 because the stale post-resolution frames (ball actually falling
+    # after the loft ended) supplied the vertical signal. This matches the
+    # oracle's loft model exactly.
+    lofting = bool(getattr(world, "_ball_no_gravity", False))
+    g = 0.0 if lofting else float(world.model.opt.gravity[2])
     if vx < -1e-3:
         t = (GOAL_LINE_X - bx) / vx
         y_cross = by + vy * t

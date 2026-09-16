@@ -53,11 +53,12 @@ def _cells(per_cell, base_seed):
     return cells
 
 
-def build_learned_bridge(brain, lat_gain=None, vert_gain=None, cmd_smoothing=None):
-    """Load the FROZEN arcade 2-output bridge (no retrain). Metal-safe features."""
+def build_learned_bridge(brain, lat_gain=None, vert_gain=None, cmd_smoothing=None,
+                         model_file="arcade_bridge_model.npz"):
+    """Load a FROZEN arcade 2-output bridge (no retrain). Metal-safe features."""
     man = np.load(ROOT / "workspace/outputs/learned_bridge/visual_manifest.npz")
     body = [int(x) for x in man["body_ids"][:207]]
-    model = LinearBridge2D.load(OUT / "arcade_bridge_model.npz")
+    model = LinearBridge2D.load(OUT / model_file)
     fm = getattr(model, "loaded_metadata", {})
     ex = MetalSafeFeatureExtractor(body, n_windows=int(fm.get("n_windows", 4)))
     basis = ArcadeDNBasis()
@@ -96,31 +97,86 @@ def eval_passive(cells):
     return res
 
 
-def eval_learned(cells, lat_gain=None, vert_gain=None):
+def eval_learned(cells, lat_gain=None, vert_gain=None,
+                 model_file="arcade_bridge_model.npz"):
     from adapters.brain import MaleCNSBrain
     brain = MaleCNSBrain(backend="metal")
-    bridge, cfg = build_learned_bridge(brain, lat_gain=lat_gain, vert_gain=vert_gain)
+    bridge, cfg = build_learned_bridge(brain, lat_gain=lat_gain,
+                                       vert_gain=vert_gain, model_file=model_file)
     res = defaultdict(lambda: [0, 0])
-    touched = 0
+    touched = touch_but_goal = deflected_save = 0
+    # command diagnostics: u_lat by shot class, u_vert by shot height
+    u_lat_by_group = defaultdict(list)
+    u_vert_by_height = defaultdict(list)
     for seed, g, hname, hf in cells:
         w = ArcadeGoalkeeperWorld(seed=seed)
         vision = VisionBridge(w.fly, brain, camera="eye_left", condition="normal")
         dec = Arcade2AxisDecoder()
         ctrl = ArcadeController(brain, vision, dec, bridge=bridge)
-        out, _ = run_episode(w, ctrl, w.sample_shot(g, height_frac=hf))
+        out, trace = run_episode(w, ctrl, w.sample_shot(g, height_frac=hf),
+                                 collect_trace=True)
         res[(g, hname)][0] += int(out["result"] == "SAVE")
         res[(g, hname)][1] += 1
         touched += int(out.get("keeper_contact", False))
+        touch_but_goal += int(bool(out.get("touch_but_goal", False)))
+        diag = w.outcome_diagnostics() if hasattr(w, "outcome_diagnostics") else {}
+        deflected_save += int(bool(diag.get("deflected_save", False)))
+        if trace:
+            u_lat_by_group[g].append(float(np.mean([t["u_lat"] for t in trace])))
+            u_vert_by_height[hname].append(
+                float(np.mean([t["u_vert"] for t in trace])))
     brain.close()
-    return res, cfg, touched
+    diagnostics = dict(
+        keeper_contact_rate=round(touched / len(cells), 3),
+        touch_but_goal_rate=round(touch_but_goal / len(cells), 3),
+        deflected_save_rate=round(deflected_save / len(cells), 3),
+        u_lat_by_group={g: round(float(np.mean(v)), 4)
+                        for g, v in sorted(u_lat_by_group.items())},
+        u_vert_by_height={h: round(float(np.mean(v)), 4)
+                          for h, v in sorted(u_vert_by_height.items())},
+    )
+    return res, cfg, diagnostics
 
 
 def summarize(res):
     tot_s = sum(v[0] for v in res.values())
     tot_n = sum(v[1] for v in res.values())
+
+    def _axis(idx, keys):
+        out = {}
+        for key in keys:
+            s = sum(v[0] for (g, h), v in res.items()
+                    if (g if idx == 0 else h) == key)
+            n = sum(v[1] for (g, h), v in res.items()
+                    if (g if idx == 0 else h) == key)
+            out[key] = dict(save_pct=round(s / n, 3) if n else None,
+                            saves=s, n=n)
+        return out
+
     return dict(overall=round(tot_s / tot_n, 3), saves=tot_s, n=tot_n,
+                by_group=_axis(0, ("left", "center", "right")),
+                by_height=_axis(1, ("low", "mid", "high")),
                 by_cell={f"{g}/{h}": f"{v[0]}/{v[1]}"
                          for (g, h), v in sorted(res.items())})
+
+
+def _eval_one_bridge(name, cells, model_file, lat_gain, vert_gain):
+    lres, cfg, diag = eval_learned(cells, lat_gain=lat_gain, vert_gain=vert_gain,
+                                   model_file=model_file)
+    summary = summarize(lres)
+    summary.update(diag)
+    summary["cfg"] = {k: cfg[k] for k in ("lat_gain", "vert_gain", "cmd_smoothing")}
+    summary["model_file"] = model_file
+    print(f"  {name:10s}: {summary['overall']:.1%}  "
+          f"(L {summary['by_group']['left']['save_pct']} "
+          f"C {summary['by_group']['center']['save_pct']} "
+          f"R {summary['by_group']['right']['save_pct']} | "
+          f"low {summary['by_height']['low']['save_pct']} "
+          f"mid {summary['by_height']['mid']['save_pct']} "
+          f"high {summary['by_height']['high']['save_pct']}) "
+          f"touch {summary['keeper_contact_rate']} "
+          f"touch-goal {summary['touch_but_goal_rate']}")
+    return summary
 
 
 def main():
@@ -130,35 +186,35 @@ def main():
     p.add_argument("--lat-gain", type=float, default=None)
     p.add_argument("--vert-gain", type=float, default=None)
     p.add_argument("--skip-oracle", action="store_true")
+    p.add_argument("--v1-model", default="arcade_bridge_model_v1.npz")
+    p.add_argument("--v2-model", default="arcade_bridge_model_v2.npz")
+    p.add_argument("--out", default="arcade_evaluate_v1_vs_v2.json")
     a = p.parse_args()
     cells = _cells(a.per_cell, a.base_seed)
     print(f"[arcade-eval] {len(cells)} matched arcade shots "
           f"({a.per_cell}/cell, {len(GROUPS)}x{len(HEIGHTS)} cells)")
     t0 = time.perf_counter()
-    result = {}
+    result = dict(per_cell=a.per_cell, base_seed=a.base_seed, n_shots=len(cells))
 
     if not a.skip_oracle:
         result["oracle"] = summarize(eval_oracle(cells))
-        print(f"  oracle : {result['oracle']['overall']:.1%}")
+        print(f"  oracle    : {result['oracle']['overall']:.1%}")
     result["passive"] = summarize(eval_passive(cells))
-    print(f"  passive: {result['passive']['overall']:.1%}")
+    print(f"  passive   : {result['passive']['overall']:.1%}")
 
-    lres, cfg, touched = eval_learned(cells, lat_gain=a.lat_gain,
-                                      vert_gain=a.vert_gain)
-    result["learned"] = summarize(lres)
-    result["learned"]["keeper_contact_rate"] = round(touched / len(cells), 3)
-    result["learned_cfg"] = {k: cfg[k] for k in ("lat_gain", "vert_gain",
-                                                 "cmd_smoothing")}
-    print(f"  learned: {result['learned']['overall']:.1%} "
-          f"(gains lat={cfg['lat_gain']} vert={cfg['vert_gain']}, "
-          f"touch rate {result['learned']['keeper_contact_rate']})")
-    for cell, v in result["learned"]["by_cell"].items():
+    result["v1"] = _eval_one_bridge("v1", cells, a.v1_model,
+                                    a.lat_gain, a.vert_gain)
+    result["v2"] = _eval_one_bridge("v2", cells, a.v2_model,
+                                    a.lat_gain, a.vert_gain)
+
+    print("\n  v2 3x3 cell matrix (saves/n):")
+    for cell, v in result["v2"]["by_cell"].items():
         print(f"      {cell:14s} {v}")
 
     result["wall_seconds"] = round(time.perf_counter() - t0, 1)
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "arcade_evaluate.json").write_text(json.dumps(result, indent=2))
-    print(f"saved arcade_evaluate.json ({result['wall_seconds']}s)")
+    (OUT / a.out).write_text(json.dumps(result, indent=2))
+    print(f"saved {a.out} ({result['wall_seconds']}s)")
 
 
 if __name__ == "__main__":

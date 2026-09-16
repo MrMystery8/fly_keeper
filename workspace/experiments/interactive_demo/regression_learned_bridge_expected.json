@@ -1,0 +1,61 @@
+{
+  "model_version": "learned-bridge-v1",
+  "scientific_tag": "learned-visual-dn-bridge-complete",
+  "n_per_group": 2,
+  "base_seed": 90000,
+  "checksums": {
+    "bridge_model.npz": "7cd477b9ed597d78db04c4286a34b74454fcfb3a9ff3c839d49093df1f97a9a0",
+    "visual_manifest.npz": "de67c07edcdb0841ebfc1c435cca435781f8520eca16b5349224f6203ce689ee",
+    "graph.npz": "346b8af85a11af13b8324e18669812c1924569e7d1adcb4e6f45cc461a2c344b"
+  },
+  "records": [
+    {
+      "seed": 90000,
+      "group": "left",
+      "result": "GOAL",
+      "decisions": 57,
+      "u_sum": -13.463309,
+      "final_fly_y": 0.2139
+    },
+    {
+      "seed": 90001,
+      "group": "left",
+      "result": "SAVE",
+      "decisions": 54,
+      "u_sum": -15.00867,
+      "final_fly_y": 0.2064
+    },
+    {
+      "seed": 90002,
+      "group": "center",
+      "result": "SAVE",
+      "decisions": 37,
+      "u_sum": 4.900568,
+      "final_fly_y": -0.0982
+    },
+    {
+      "seed": 90003,
+      "group": "center",
+      "result": "SAVE",
+      "decisions": 43,
+      "u_sum": -0.138243,
+      "final_fly_y": -0.0066
+    },
+    {
+      "seed": 90004,
+      "group": "right",
+      "result": "SAVE",
+      "decisions": 71,
+      "u_sum": 19.564613,
+      "final_fly_y": -0.346
+    },
+    {
+      "seed": 90005,
+      "group": "right",
+      "result": "SAVE",
+      "decisions": 69,
+      "u_sum": 25.556302,
+      "final_fly_y": -0.4236
+    }
+  ]
+}

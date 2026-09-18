@@ -99,7 +99,7 @@ kept CPU as the reference and treated Metal as a throughput variant, not a
 drop-in truth-preserving replacement.
 
 **Evidence.** Tag `metal-v3-foundation-2026-09-15`; branch
-`metal-deterministic-v3`; [Metal backend report](workspace/gpu/METAL_BACKEND_REPORT.md).
+`metal-deterministic-v3`; [Metal backend report](../workspace/gpu/METAL_BACKEND_REPORT.md).
 
 ### 2. Embodied fixed-connectome baseline — 15 September
 
@@ -121,7 +121,7 @@ right. The apparent centre success was simply standing still, not visual
 interception. This established the baseline against which all later claims
 were evaluated.
 
-**Evidence.** Tag `embodied-flykeeper-baseline`; [embodied report](EMBODIED_REPORT.md).
+**Evidence.** Tag `embodied-flykeeper-baseline`; [embodied report](reports/EMBODIED_REPORT.md).
 
 ### 3. Neural diagnostics — 15 September
 
@@ -144,7 +144,7 @@ its apparent improvement was a baseline asymmetry artifact, not visual
 control. Offline decoding alone was therefore not accepted as evidence of a
 vision-driven controller.
 
-**Evidence.** Tag `neural-diagnostics-complete`; [neural diagnostics report](NEURAL_DIAGNOSTICS_REPORT.md).
+**Evidence.** Tag `neural-diagnostics-complete`; [neural diagnostics report](reports/NEURAL_DIAGNOSTICS_REPORT.md).
 
 ### 4. Pathway audit — 15 September
 
@@ -168,7 +168,7 @@ different observation windows restored meaningful deep opponent direction.
 plasticity experiment was the smallest faithful attempt to repair the found
 bottleneck.
 
-**Evidence.** Tag `pathway-audit-complete`; [pathway activation report](PATHWAY_ACTIVATION_REPORT.md).
+**Evidence.** Tag `pathway-audit-complete`; [pathway activation report](reports/PATHWAY_ACTIVATION_REPORT.md).
 
 ### 5. Targeted reward-modulated plasticity — side branch, 15 September
 
@@ -222,7 +222,7 @@ remained useful with 16 neurons / 65 parameters or a pair of DNs.
 the body retained a rightward common-mode asymmetry. These limits are part of
 the result, not hidden implementation details.
 
-**Evidence.** Tag `learned-visual-dn-bridge-complete`; [learned bridge report](LEARNED_BRIDGE_REPORT.md).
+**Evidence.** Tag `learned-visual-dn-bridge-complete`; [learned bridge report](reports/LEARNED_BRIDGE_REPORT.md).
 
 ### 7. Interactive science demo — 16 September
 
@@ -241,7 +241,7 @@ tag.
 **Known limit.** CPU reference simulation runs at about 0.12× real time in the
 interactive loop; it is a science demo, not a real-time game.
 
-**Evidence.** Tag `flykeeper-interactive-complete`; [interactive demo report](INTERACTIVE_DEMO_REPORT.md).
+**Evidence.** Tag `flykeeper-interactive-complete`; [interactive demo report](reports/INTERACTIVE_DEMO_REPORT.md).
 
 ### 8. Arcade redesign and stale-dataset correction — 16 September
 
@@ -262,7 +262,7 @@ parity was exact for the repaired path.
 DN/body bottleneck: v2 remained right-favoring and produced only 38.9% in its
 reported 3×3 closed-loop evaluation, close to v1's 41.7%.
 
-**Evidence.** Tag `arcade-bridge-v2-complete`; [Arcade Bridge v2 report](ARCADE_BRIDGE_V2_REPORT.md).
+**Evidence.** Tag `arcade-bridge-v2-complete`; [Arcade Bridge v2 report](reports/ARCADE_BRIDGE_V2_REPORT.md).
 
 ### 9. True binocular bridge — 16 September
 
@@ -285,7 +285,7 @@ bottleneck.
 **Why the project changed direction.** Continuous visual-to-action decoding
 was too vulnerable once self-motion changed the retinal distribution.
 
-**Evidence.** Tag `arcade-binocular-vision`; [binocular report](ARCADE_BINOCULAR_REPORT.md).
+**Evidence.** Tag `arcade-binocular-vision`; [binocular report](reports/ARCADE_BINOCULAR_REPORT.md).
 
 ### 10. Early-intent action policy and vertical refinement — 18 September
 
@@ -312,7 +312,7 @@ out-of-distribution interventions rather than ordinary robustness tests.
 
 **Evidence.** Tags `arcade-early-intent-rl-53pct`,
 `arcade-early-intent-rl-70pct`, and `arcade-early-intent-final-champion`;
-[final early-intent report](EARLY_INTENT_ACTION_POLICY_REPORT.md).
+[final early-intent report](reports/EARLY_INTENT_ACTION_POLICY_REPORT.md).
 
 ## Full Git ledger
 
@@ -353,10 +353,10 @@ calculable lower bounds, and a clearly labelled development estimate.
 | Arcade matched 27-shot run | Metal / Apple M4 | about 9.6 minutes wall |
 | Interactive reference loop | CPU | about 0.12× real time; a penalty takes several wall-clock seconds |
 
-Sources: [setup report](SETUP_REPORT.md), [embodied report](EMBODIED_REPORT.md),
-[Metal report](workspace/gpu/METAL_BACKEND_REPORT.md),
-[Arcade v3 report](ARCADE_BINOCULAR_BRIDGE_V3_REPORT.md), and
-[interactive report](INTERACTIVE_DEMO_REPORT.md).
+Sources: [setup report](reports/SETUP_REPORT.md), [embodied report](reports/EMBODIED_REPORT.md),
+[Metal report](../workspace/gpu/METAL_BACKEND_REPORT.md),
+[Arcade v3 report](reports/ARCADE_BINOCULAR_BRIDGE_V3_REPORT.md), and
+[interactive report](reports/INTERACTIVE_DEMO_REPORT.md).
 
 ### Reconstructable lower bounds
 
@@ -393,25 +393,25 @@ upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_de
 ```
 
 For the final Arcade architecture, start with the command and checksum section
-in [EARLY_INTENT_ACTION_POLICY_REPORT.md](EARLY_INTENT_ACTION_POLICY_REPORT.md).
+in [EARLY_INTENT_ACTION_POLICY_REPORT.md](reports/EARLY_INTENT_ACTION_POLICY_REPORT.md).
 For the prior learned-bridge experiment, use the reproducibility section in
-[LEARNED_BRIDGE_REPORT.md](LEARNED_BRIDGE_REPORT.md). Do not mix metrics across
+[LEARNED_BRIDGE_REPORT.md](reports/LEARNED_BRIDGE_REPORT.md). Do not mix metrics across
 science mode and arcade mode: they use different bodies, evaluators, and
 benchmarks.
 
 ## Report index
 
-- [Setup and reference baseline](SETUP_REPORT.md)
-- [Metal backend investigation](workspace/gpu/METAL_BACKEND_REPORT.md)
-- [Embodied fixed-connectome baseline](EMBODIED_REPORT.md)
-- [Neural diagnostics](NEURAL_DIAGNOSTICS_REPORT.md)
-- [Pathway activation audit](PATHWAY_ACTIVATION_REPORT.md)
-- [Minimal learned visual→DN bridge](LEARNED_BRIDGE_REPORT.md)
-- [Interactive science demo](INTERACTIVE_DEMO_REPORT.md)
-- [Arcade Bridge v2 correction](ARCADE_BRIDGE_V2_REPORT.md)
-- [Arcade binocular vision experiment](ARCADE_BINOCULAR_REPORT.md)
-- [Arcade action-policy evolution](ARCADE_BINOCULAR_ACTION_POLICY_REPORT.md)
-- [Final early-intent champion](EARLY_INTENT_ACTION_POLICY_REPORT.md)
+- [Setup and reference baseline](reports/SETUP_REPORT.md)
+- [Metal backend investigation](../workspace/gpu/METAL_BACKEND_REPORT.md)
+- [Embodied fixed-connectome baseline](reports/EMBODIED_REPORT.md)
+- [Neural diagnostics](reports/NEURAL_DIAGNOSTICS_REPORT.md)
+- [Pathway activation audit](reports/PATHWAY_ACTIVATION_REPORT.md)
+- [Minimal learned visual→DN bridge](reports/LEARNED_BRIDGE_REPORT.md)
+- [Interactive science demo](reports/INTERACTIVE_DEMO_REPORT.md)
+- [Arcade Bridge v2 correction](reports/ARCADE_BRIDGE_V2_REPORT.md)
+- [Arcade binocular vision experiment](reports/ARCADE_BINOCULAR_REPORT.md)
+- [Arcade action-policy evolution](reports/ARCADE_BINOCULAR_ACTION_POLICY_REPORT.md)
+- [Final early-intent champion](reports/EARLY_INTENT_ACTION_POLICY_REPORT.md)
 
 ## What the project established—and did not establish
 

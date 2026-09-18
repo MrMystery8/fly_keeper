@@ -92,14 +92,14 @@ VISION_LABELS = {
     "shuffled_perstep": "Temporal / Per-frame Visual Shuffle",
 }
 
-# Historical numbers from LEARNED_BRIDGE_REPORT.md (48-shot held-out test set).
+# Historical numbers from docs/reports/LEARNED_BRIDGE_REPORT.md (48-shot held-out test set).
 # Shown for context only; NEVER used as live results.
 PLASTICITY_HISTORICAL = {
     "save_rate": 0.375,
     "note": ("Targeted reward-modulated plasticity on the optic-lobe->visual-"
              "projection route FAILED: it strengthened common-mode transmission "
              "but never built left/right opponent structure (trained ~= passive "
-             "~= 37.5%, vision-independent). See LEARNED_BRIDGE_REPORT.md."),
+             "~= 37.5%, vision-independent). See docs/reports/LEARNED_BRIDGE_REPORT.md."),
 }
 
 
@@ -162,7 +162,7 @@ class GoalkeeperEngine:
                 "runnable in this interactive build (the plasticity-trained state "
                 "is intentionally not loaded, per the demo handoff Section 6/29). "
                 f"Historical result: {PLASTICITY_HISTORICAL['save_rate']:.0%} "
-                "save rate, vision-independent. See LEARNED_BRIDGE_REPORT.md.")
+                "save rate, vision-independent. See docs/reports/LEARNED_BRIDGE_REPORT.md.")
 
         # The MuJoCo world is always present (it is the physical body + ball).
         self.world = GoalkeeperWorld(seed=seed)

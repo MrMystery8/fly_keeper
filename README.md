@@ -8,7 +8,7 @@ on an untouched, clean-goal test battery—compared with **21/90 (23.3%)** for
 the continuous monocular baseline and **85/90 (94.4%)** for the privileged
 physical oracle.
 
-Read [PROJECT_HISTORY.md](PROJECT_HISTORY.md) for the complete, evidence-linked
+Read [the end-of-project history](docs/PROJECT_HISTORY.md) for the complete, evidence-linked
 development record: all phases, branch decisions, successes, negative results,
 architecture changes, compute accounting, and final limitations.
 
@@ -54,7 +54,7 @@ left-eye blind 10.0%, right-eye blind 25.6%, both eyes blind 8.9%.
 5. **Final champion.** Differential vertical refinement produced the final
    67.8% untouched-test result and a regression-frozen presentation.
 
-See [PROJECT_HISTORY.md](PROJECT_HISTORY.md) for dates, commits, tags, branch
+See [the end-of-project history](docs/PROJECT_HISTORY.md) for dates, commits, tags, branch
 topology, evidence, and the decisions connecting every stage.
 
 ## Launch the interactive demo
@@ -88,17 +88,18 @@ upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_de
 
 ## Key reports
 
-- [End-of-project history](PROJECT_HISTORY.md)
-- [Final early-intent champion](EARLY_INTENT_ACTION_POLICY_REPORT.md)
-- [Learned visual→DN bridge](LEARNED_BRIDGE_REPORT.md)
-- [Embodied baseline](EMBODIED_REPORT.md)
-- [Neural diagnostics](NEURAL_DIAGNOSTICS_REPORT.md) and [pathway audit](PATHWAY_ACTIVATION_REPORT.md)
-- [Arcade v2 data-integrity correction](ARCADE_BRIDGE_V2_REPORT.md)
-- [Binocular experiment](ARCADE_BINOCULAR_REPORT.md)
+- [Documentation index](docs/README.md)
+- [End-of-project history](docs/PROJECT_HISTORY.md)
+- [Final early-intent champion](docs/reports/EARLY_INTENT_ACTION_POLICY_REPORT.md)
+- [Learned visual→DN bridge](docs/reports/LEARNED_BRIDGE_REPORT.md)
+- [Embodied baseline](docs/reports/EMBODIED_REPORT.md)
+- [Neural diagnostics](docs/reports/NEURAL_DIAGNOSTICS_REPORT.md) and [pathway audit](docs/reports/PATHWAY_ACTIVATION_REPORT.md)
+- [Arcade v2 data-integrity correction](docs/reports/ARCADE_BRIDGE_V2_REPORT.md)
+- [Binocular experiment](docs/reports/ARCADE_BINOCULAR_REPORT.md)
 - [Metal backend investigation](workspace/gpu/METAL_BACKEND_REPORT.md)
 
-Historical reports are frozen evidence; this README and
-`PROJECT_HISTORY.md` are the public map across them.
+Historical reports are frozen evidence; this README and the `docs/` index are
+the public map across them.
 
 ## Layout
 
@@ -108,7 +109,7 @@ Historical reports are frozen evidence; this README and
   `interactive_demo/`), `outputs/` (frozen artifacts + results).
 - `upstream/doomfly/` — clean DoomFly checkout providing the native MaleCNS
   kernel and the Python venv (`.venv-neural`).
-- `*_REPORT.md` — frozen, per-phase scientific reports.
+- `docs/` — project history, a report index, and frozen per-phase reports.
 
 Dependencies: the `upstream/doomfly/.venv-neural` environment (Python 3.11,
 MuJoCo 3.13, NumPy, pygame, imageio). CPU is the scientific-reference backend;

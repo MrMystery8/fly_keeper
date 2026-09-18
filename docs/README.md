@@ -25,6 +25,8 @@ repository-root [README](../README.md) is the public entry point.
 
 ### Arcade mode
 
+- **Final playable experience:** run
+  `PYTHONPATH=workspace upstream/doomfly/.venv-neural/bin/python workspace/experiments/arcade_demo/play_arcade_goalkeeper.py`.
 - [Arcade Bridge v2: stale-dataset correction](reports/ARCADE_BRIDGE_V2_REPORT.md)
 - [Binocular vision experiment](reports/ARCADE_BINOCULAR_REPORT.md)
 - [Binocular bottleneck audit](reports/ARCADE_BINOCULAR_BOTTLENECK_AUDIT.md)

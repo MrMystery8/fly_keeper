@@ -384,8 +384,15 @@ The exact total is unknowable from repository evidence alone.
 ## Reproduce and inspect
 
 The frozen final report is the source of truth for champion commands, hashes,
-and artifact paths. From repository root, the interactive science demo and
-regressions are:
+and artifact paths. The final playable Arcade champion is:
+
+```sh
+PYTHONPATH=workspace upstream/doomfly/.venv-neural/bin/python \
+  workspace/experiments/arcade_demo/play_arcade_goalkeeper.py
+```
+
+The earlier interactive science demo and its regressions remain available as
+historical validation tooling:
 
 ```sh
 upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_demo.game

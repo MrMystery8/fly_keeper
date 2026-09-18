@@ -57,30 +57,32 @@ left-eye blind 10.0%, right-eye blind 25.6%, both eyes blind 8.9%.
 See [the end-of-project history](docs/PROJECT_HISTORY.md) for dates, commits, tags, branch
 topology, evidence, and the decisions connecting every stage.
 
-## Launch the interactive demo
+## Launch the final interactive Arcade goalkeeper
 
-From the repo root, using the project virtualenv:
+This is the final playable experience. It defaults to the frozen
+67.8%-save early-intent champion and shows the two eyes, intent estimate,
+MaleCNS activity, DN readouts, and physical goalkeeper in one interface.
+
+```sh
+PYTHONPATH=workspace upstream/doomfly/.venv-neural/bin/python \
+  workspace/experiments/arcade_demo/play_arcade_goalkeeper.py
+```
+
+Controls: **Space** locks the automatically swept direction, then height, and
+fires · **C** or **1–7** changes camera · **Tab** toggles research panels ·
+**R** resets the score · **Q/Esc** quits. The display controls never enter the
+controller's observation.
+
+## Legacy learned-bridge science demo
+
+The earlier CPU-reference learned-bridge interface remains available as a
+separate historical science demo. It is not the final Arcade champion:
 
 ```sh
 upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_demo.game
 ```
 
-Optional: `--mode {natural|learned|random|heuristic|plasticity}`,
-`--vision {normal|blind|mirrored|shuffled_fixed|shuffled_perstep}`,
-`--match-len N`.
-
-Controls: **mouse** aim · **↑/↓ or scroll** power · **Space/click** shoot ·
-**R** reset · **N** restart match · **1–5** mode · **B** bridge ON/OFF ·
-**V** vision condition · **D** debug panel · **S** deterministic Science-Demo ·
-**Q** quit.
-
-The Learned Bridge mode simulates a 166,700-neuron brain per 20 ms decision, so
-it runs at roughly 0.12× real time on CPU; each penalty takes a few seconds and
-a `sim/real` pace indicator is shown. Scientific timing is never altered for
-rendering.
-
-Regression suite (artifact integrity, bridge-OFF, frozen learned bridge,
-no-privileged-leak):
+Its regression suite verifies the frozen learned-bridge artifacts:
 
 ```sh
 upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_demo.run_regressions

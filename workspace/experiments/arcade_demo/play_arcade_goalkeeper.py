@@ -113,13 +113,14 @@ class ArcadeGame:
         activity=self.brain.read(self.decoder.readout_ids())
         _,diag=self.decoder.decode(activity)
         g=self.bridge.gait_on()
+        sensing_step=self.bridge.sensing
         u_lat,u_vert=self.bridge.command(self.world)
         self.last_command={"forward":0.,"lateral":u_lat,"vertical":u_vert,"gait_on":g}
         diag["bridge_u_lat"]=u_lat
         diag["bridge_u_vert"]=u_vert
         diag["intent_lat"]=self.bridge.intent.intent_lat
         diag["confidence"]=self.bridge.intent.confidence
-        diag["sensing"]=self.bridge.sensing
+        diag["sensing"]=sensing_step
         diag["spikes"]=step_info.get("spikes",0)
         self.last_diag=diag
         self._update_brain_map()

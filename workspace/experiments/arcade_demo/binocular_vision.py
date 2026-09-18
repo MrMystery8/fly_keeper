@@ -140,6 +140,11 @@ class BinocularVisionBridge:
         cond = self.condition
         img_l = self._render("eye_left")
         img_r = self._render("eye_right")
+        # Presentation may display these exact physical sensor-camera frames.
+        # They are cached only after rendering, and never enter the controller
+        # except through the unchanged luminance path below.
+        self.last_left_frame = img_l.copy()
+        self.last_right_frame = img_r.copy()
         black = np.zeros_like(img_l)
 
         if cond == "left_blind":

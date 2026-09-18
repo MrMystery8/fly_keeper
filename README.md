@@ -1,65 +1,61 @@
-# Fruit-Fly-Brain-Powered Goalkeeper
+# Fruit Fly Brain-Powered Goalkeeper
 
-An articulated fruit fly, embodied in MuJoCo, plays goalkeeper. A **fixed MaleCNS
-connectome** (≈166,700 neurons, ≈25.6 M synapses) processes the fly's own
-simulated vision; a **small learned bridge (829 trainable parameters)** maps
-informative visual activity onto real descending motor neurons that drive the
-body. The native synaptic weights are never changed — the fly connectome did not
-naturally know how to play football; the bridge is an engineered learned
-transformation across an experimentally identified visual-to-motor bottleneck.
+An engineered fruit-fly goalkeeper built around a **fixed MaleCNS connectome**
+(about 166,700 neurons and 25.6 million synapses), simulated eyes, real
+descending-neuron (DN) activity, and a MuJoCo body. The project finished with
+an arcade **WHERE/HOW early-intent controller** that saved **61/90 (67.8%)**
+on an untouched, clean-goal test battery—compared with **21/90 (23.3%)** for
+the continuous monocular baseline and **85/90 (94.4%)** for the privileged
+physical oracle.
 
-> This is a simulation using measured MaleCNS connectivity — not a conscious
-> fly, an exact digital fly, or a validated reproduction of fly physiology. The
-> LIF dynamics, retinal encoding, body, locomotion CPG, motor decoder, and the
-> learned bridge are engineered components, transparently reported as such.
+Read [PROJECT_HISTORY.md](PROJECT_HISTORY.md) for the complete, evidence-linked
+development record: all phases, branch decisions, successes, negative results,
+architecture changes, compute accounting, and final limitations.
+
+> This is a transparent simulation and research prototype, not a conscious fly,
+> an exact digital organism, or a validated reproduction of fly physiology.
+> The body, retinal encoding, control interfaces, learned bridge, and final
+> policies are engineered; the fixed connectivity is preserved.
+
+## Final result
+
+The final champion pauses movement for eight 20-ms decisions (about 160 ms) to
+form a bilateral visual early-intent estimate, then uses a frozen,
+non-privileged 15-dimensional observation to choose physical DN-driven actions.
+Every one of its 61 saves was a body deflection, and all 90 evaluation shots
+were verified as natural misses without the keeper.
+
+| Matched 90-shot controller | Saves |
+| --- | ---: |
+| Privileged physical oracle | 85/90 (94.4%) |
+| Continuous monocular v2 baseline | 21/90 (23.3%) |
+| Early-intent baseline | 51/90 (56.7%) |
+| **Final early-intent champion** | **61/90 (67.8%)** |
+
+The champion's bilateral visual dependence was checked on the same protocol:
+left-eye blind 10.0%, right-eye blind 25.6%, both eyes blind 8.9%.
 
 ## Project arc
 
-Each phase is frozen at a git tag with a standalone report; nothing below is
-rewritten by later phases.
+1. **Reference and embodiment.** CPU-native MaleCNS stayed the scientific
+   reference; an optional Metal backend improved some throughput but did not
+   retain exact closed-loop behavior. The embodied fixed brain saved only
+   centre shots by standing still (about 33% overall).
+2. **Diagnosis and negative results.** Probes showed direction in early visual
+   activity and functional DNs, but the signal died before useful DNs.
+   Targeted reward-modulated native plasticity strengthened common-mode activity
+   without learning left/right control.
+3. **Learned-bridge science result.** A frozen 829-parameter visual→DN bridge
+   achieved 71% on a held-out 48-shot science-mode test and failed the right
+   controls when blinded, mirrored, shuffled, or switched off.
+4. **Arcade redesign.** The project fixed a stale padded-dataset bug, showed
+   that two eyes alone did not solve continuous control, and moved to early
+   intent plus an explicit action policy.
+5. **Final champion.** Differential vertical refinement produced the final
+   67.8% untouched-test result and a regression-frozen presentation.
 
-1. **Natural MaleCNS baseline** — the fixed brain, embodied, saves ~33 % of
-   penalties: 0 % left, 100 % centre, 0 % right. It only "saves" centre shots by
-   standing still. The body itself is capable (a privileged heuristic saves
-   ~94 %). See `EMBODIED_REPORT.md` (`embodied-flykeeper-baseline`).
-
-2. **Pathway audit** — diagnostics show the retina and early optic lobe decode
-   left-vs-right essentially perfectly, and real descending neurons can causally
-   drive useful left/right movement, but the directional signal **dies at the
-   optic-lobe → visual-projection stage** and never reaches the descending
-   neurons as opponent structure. See `NEURAL_DIAGNOSTICS_REPORT.md`,
-   `PATHWAY_ACTIVATION_REPORT.md` (`neural-diagnostics-complete`,
-   `pathway-audit-complete`).
-
-3. **Targeted-plasticity negative result** — reward-modulated plasticity on that
-   exact route *failed*: it strengthened a common-mode signal but never built
-   left/right structure (trained ≈ passive ≈ 37.5 %, vision-independent). The
-   defect is representational, not a lack of training (`targeted-plasticity-complete`).
-
-4. **Minimal learned bridge** — a single-degree-of-freedom linear bridge from
-   selected optic-lobe neurons to a fixed opponent descending-neuron basis
-   raises held-out save rate from **33 % → 71 %** (p = 2 × 10⁻⁴). It is
-   genuinely vision-dependent: it collapses when blinded (~35 %) or under a
-   per-timestep-shuffled retina (~38 %), degrades when mirrored (~50 %), and is
-   bit-for-bit Natural MaleCNS when switched off. It shrinks to as few as 16
-   neurons / 65 parameters or a single DN pair. **The native synapses did not
-   learn the task.** Full details in `LEARNED_BRIDGE_REPORT.md`
-   (`learned-visual-dn-bridge-complete`).
-
-5. **Interactive demo** — a playable 3D penalty game where you take penalties
-   against the fly goalkeeper in several modes. The main **Learned Bridge Fly**
-   mode runs the *exact frozen* chain from phase 4; no privileged ball state
-   reaches the neural controller. Details in `INTERACTIVE_DEMO_REPORT.md`
-   (branch `flykeeper-interactive`).
-
-Headline numbers (48-shot held-out test set, `LEARNED_BRIDGE_REPORT.md`):
-
-| Controller | Save rate |
-| --- | ---: |
-| Natural MaleCNS / Random / Passive | 0.33 |
-| Targeted plasticity (historical) | 0.375 |
-| **Learned bridge** | **0.71** |
-| Heuristic (oracle ceiling) | 0.94 |
+See [PROJECT_HISTORY.md](PROJECT_HISTORY.md) for dates, commits, tags, branch
+topology, evidence, and the decisions connecting every stage.
 
 ## Launch the interactive demo
 
@@ -90,6 +86,20 @@ no-privileged-leak):
 upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_demo.run_regressions
 ```
 
+## Key reports
+
+- [End-of-project history](PROJECT_HISTORY.md)
+- [Final early-intent champion](EARLY_INTENT_ACTION_POLICY_REPORT.md)
+- [Learned visual→DN bridge](LEARNED_BRIDGE_REPORT.md)
+- [Embodied baseline](EMBODIED_REPORT.md)
+- [Neural diagnostics](NEURAL_DIAGNOSTICS_REPORT.md) and [pathway audit](PATHWAY_ACTIVATION_REPORT.md)
+- [Arcade v2 data-integrity correction](ARCADE_BRIDGE_V2_REPORT.md)
+- [Binocular experiment](ARCADE_BINOCULAR_REPORT.md)
+- [Metal backend investigation](workspace/gpu/METAL_BACKEND_REPORT.md)
+
+Historical reports are frozen evidence; this README and
+`PROJECT_HISTORY.md` are the public map across them.
+
 ## Layout
 
 - `workspace/` — reusable MaleCNS workspace: `adapters/` (brain), `embodiment/`
@@ -98,7 +108,8 @@ upstream/doomfly/.venv-neural/bin/python -m workspace.experiments.interactive_de
   `interactive_demo/`), `outputs/` (frozen artifacts + results).
 - `upstream/doomfly/` — clean DoomFly checkout providing the native MaleCNS
   kernel and the Python venv (`.venv-neural`).
-- `*_REPORT.md` — per-phase scientific reports (historical; do not edit).
+- `*_REPORT.md` — frozen, per-phase scientific reports.
 
 Dependencies: the `upstream/doomfly/.venv-neural` environment (Python 3.11,
-MuJoCo 3.13, NumPy, pygame, imageio). CPU scientific-reference backend.
+MuJoCo 3.13, NumPy, pygame, imageio). CPU is the scientific-reference backend;
+Metal is an optional, behaviorally relaxed throughput variant.

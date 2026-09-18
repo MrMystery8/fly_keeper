@@ -66,14 +66,35 @@ class BinocularVisionBridge:
 
     CONDITIONS = ("both", "left_only", "right_only", "left_blind", "right_blind",
                   "both_blind", "mono_left")
+    # Receptor -> camera-pixel sampling map:
+    #   "viewport"  : upstream overlapping-viewport UV (left uv_x in [0,0.6],
+    #                 right uv_x in [0.4,1.0]) sampled against each eye's OWN
+    #                 rendered image. This is the ORIGINAL binocular behaviour.
+    #                 The binocular_calibration audit showed a frontal COVERAGE
+    #                 GAP under this map: a CENTER ball lands in the right ~40%
+    #                 of the left image (beyond left receptors' 0-0.6 window) and
+    #                 the left ~40% of the right image (before right receptors'
+    #                 0.4-1.0 window), so BOTH eye populations go silent for
+    #                 frontal shots even though both CAMERAS see the ball.
+    #   "fullframe" : each eye population's uv_x is stretched to span that eye's
+    #                 FULL camera frame [0,1] (retinotopic order and the right
+    #                 eye's mirrored orientation preserved; uv_y unchanged). This
+    #                 corrects the receptor->pixel sampling WITHOUT moving the
+    #                 camera, changing its pose, or widening its FOV; it only
+    #                 fixes which pixels of the (unchanged) rendered eye image
+    #                 each receptor reads. See BINOCULAR_RETINOTOPY_AUDIT.md.
+    RETINA_MAPS = ("viewport", "fullframe")
 
-    def __init__(self, fly_body, brain, width=160, height=96, condition="both"):
+    def __init__(self, fly_body, brain, width=160, height=96, condition="both",
+                 retina_map="viewport"):
         assert condition in self.CONDITIONS, condition
+        assert retina_map in self.RETINA_MAPS, retina_map
         self.fb = fly_body
         self.brain = brain
         self.width = width
         self.height = height
         self.condition = condition
+        self.retina_map = retina_map
         self._renderer = mujoco.Renderer(fly_body.model, height=height, width=width)
         # retinal uv layout + biological IDs (unchanged upstream mapping)
         self.uv = np.asarray(brain._brain.uv)
@@ -85,6 +106,28 @@ class BinocularVisionBridge:
         if not np.array_equal(man["retina_body_id"].astype(np.int64),
                               np.asarray(self.retina_ids, dtype=np.int64)):
             raise ValueError("eye manifest receptor order != brain retina order")
+        # Per-eye sampling UVs. "viewport" reads both eyes at the raw upstream uv.
+        # "fullframe" rescales each population's uv_x to [0,1] over its own image.
+        self.uv_left = self.uv
+        self.uv_right = self.uv
+        if retina_map == "fullframe":
+            self.uv_left = self._remap_fullframe(self.uv, self.left_mask)
+            self.uv_right = self._remap_fullframe(self.uv, self.right_mask)
+
+    @staticmethod
+    def _remap_fullframe(uv, mask):
+        """Stretch the masked population's uv_x to [0,1]; uv_y unchanged.
+
+        Preserves each receptor's horizontal ORDER (and the right eye's
+        mirrored orientation, which comes from the upstream 0.40+0.60*(1-z)
+        layout), so retinotopy is intact -- only the horizontal EXTENT is
+        matched to the eye's full camera frame."""
+        out = uv.copy()
+        x = uv[mask, 0]
+        lo, hi = float(x.min()), float(x.max())
+        if hi > lo:
+            out[mask, 0] = (x - lo) / (hi - lo)
+        return out
 
     def _render(self, camera):
         self._renderer.update_scene(self.fb.data, camera=camera)
@@ -106,12 +149,12 @@ class BinocularVisionBridge:
         elif cond == "both_blind":
             img_l = black; img_r = black
 
-        lum_l = retinal_samples(img_l, self.uv)
+        lum_l = retinal_samples(img_l, self.uv_left)
         if cond == "mono_left":
             # current one-eye behaviour: ALL receptors sample the left image
             luminance = lum_l.copy()
         else:
-            lum_r = retinal_samples(img_r, self.uv)
+            lum_r = retinal_samples(img_r, self.uv_right)
             luminance = lum_l.copy()
             luminance[self.right_mask] = lum_r[self.right_mask]
 
@@ -125,5 +168,5 @@ class BinocularVisionBridge:
         info = dict(
             left_lum_mean=float(luminance[self.left_mask].mean()),
             right_lum_mean=float(luminance[self.right_mask].mean()),
-            condition=cond)
+            condition=cond, retina_map=self.retina_map)
         return luminance, info

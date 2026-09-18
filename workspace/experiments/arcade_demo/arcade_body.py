@@ -64,10 +64,19 @@ class ArcadeFlyBody(FlyBody):
 
     # ------- takeoff logic -------
     TAKEOFF_LAT = 0.45       # |u_lat| above this triggers takeoff
-    TAKEOFF_VERT = 0.15      # u_vert above this triggers takeoff
+    TAKEOFF_VERT = 0.20      # u_vert above this triggers a full airborne takeoff
     TAKEOFF_IMPULSE = 6.0    # cm/s initial upward kick at takeoff
     LAND_HEIGHT = 0.04       # below this (and no demand) -> grounded
     TAKEOFF_COOLDOWN = 5     # decision steps before re-evaluating land->air
+
+    # ---- continuous LOW-HOP regime (deadband removal, Phase 4) ----
+    # A small vertical demand below TAKEOFF_VERT should NOT do nothing (that was
+    # a severe deadband: u_vert 0..0.15 -> 0 cm, then a cliff to a full launch).
+    # Instead it commands a bounded grounded hop whose target height scales
+    # continuously with u_vert, so small u_vert -> small hop / stay low, and it
+    # blends smoothly into the full takeoff at TAKEOFF_VERT. Still bounded PD
+    # forces (no teleport / no velocity overwrite).
+    LOW_HOP_MAX_H = 0.30     # max height (cm) reachable in the grounded low-hop
 
     # NOTE: Arcade goalkeeper REACH is handled by a NON-CONTACT interception
     # volume in the arcade world (see ArcadeGoalkeeperWorld), NOT by any dynamic
@@ -137,6 +146,8 @@ class ArcadeFlyBody(FlyBody):
                 self._cooldown = self.TAKEOFF_COOLDOWN
                 # brief physical upward kick (bounded impulse via a one-tick
                 # velocity add is avoided; instead a strong upward force below)
+            elif 0.03 < u_vert < self.TAKEOFF_VERT:
+                self.state = "LOW_HOP"      # small continuous vertical (no cliff)
             elif abs(u_lat) > 0.05:
                 self.state = "GROUND_CORRECTION"
             else:
@@ -170,13 +181,24 @@ class ArcadeFlyBody(FlyBody):
         gravity = float(self.model.opt.gravity[2])   # ~ -981 cm/s^2
 
         if not airborne:
-            # grounded: gentle bounded lateral correction (PD), no vertical drive
+            # grounded: gentle bounded lateral correction (PD).
             target_v = np.clip(u_lat, -1, 1) * self.GROUND_MAX_SPEED
-            fx = 0.0
             fy = self.GROUND_LAT_THRUST * mass * (target_v - vel[1])
             self.data.xfrc_applied[self.thorax_bid, 1] = fy
-            # let gravity/contact hold it down; small settle damper if slightly up
-            if height > 0.02:
+            # CONTINUOUS LOW-HOP (deadband removal): a small vertical demand
+            # (0.03 <= u_vert < TAKEOFF_VERT) commands a bounded low hop whose
+            # target height scales linearly with u_vert up to LOW_HOP_MAX_H, so
+            # small u_vert -> small hop and the response blends smoothly into the
+            # full takeoff at TAKEOFF_VERT (which reaches ~LOW_HOP_MAX_H). No cliff.
+            if u_vert >= 0.03:
+                frac = min(u_vert, self.TAKEOFF_VERT) / self.TAKEOFF_VERT
+                low_target = frac * self.LOW_HOP_MAX_H
+                self.data.xfrc_applied[self.thorax_bid, 2] = (
+                    mass * (-gravity)
+                    + self.KZ * mass * (low_target - height)
+                    - self.DZ * mass * vel[2])
+            elif height > 0.02:
+                # no demand: let gravity/contact hold it down; settle damper
                 self.data.xfrc_applied[self.thorax_bid, 2] = \
                     mass * (-gravity) - self.DZ * mass * vel[2] \
                     - self.KZ * mass * height

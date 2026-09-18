@@ -38,9 +38,21 @@ from experiments.arcade_demo.arcade_runtime import DECISION_MS, DECISION_S, MAX_
 from experiments.arcade_demo.binocular_vision import BinocularVisionBridge
 
 OUT = ROOT / "workspace" / "outputs" / "arcade_demo"
-N_WINDOWS = 4
+# Store the longest causal history once; analyses may use its newest 1/2/4/6/8
+# bins without recollecting data.  The ring buffer is reset for every episode.
+N_WINDOWS = 8
 GROUPS = ("left", "center", "right")
-HEIGHTS = (0.0, 0.85)
+# Named, balanced Arcade training cells.  MID is deliberately not inferred from
+# a random height; it is an explicit part of every complete-episode split.
+HEIGHTS = (("low", 0.0), ("mid", 0.5), ("high", 0.85))
+
+
+def height_class(height_frac):
+    if height_frac < 0.25:
+        return "low"
+    if height_frac < 0.7:
+        return "mid"
+    return "high"
 
 
 def load_pool():
@@ -50,7 +62,8 @@ def load_pool():
 
 
 def generate(per_cell=10, base_seed=1000, backend="metal",
-             out_name="binocular_dataset.npz", condition="both"):
+             out_name="binocular_balanced_dataset.npz", condition="both",
+             n_windows=N_WINDOWS, retina_map="viewport"):
     body_ids, sides, types = load_pool()
     body_list = [int(x) for x in body_ids]
     brain = MaleCNSBrain(backend=backend)
@@ -61,13 +74,22 @@ def generate(per_cell=10, base_seed=1000, backend="metal",
     seed = base_seed
     t0 = time.perf_counter()
     for group in GROUPS:
-        for hf in HEIGHTS:
+        for hname, hf in HEIGHTS:
             for _ in range(per_cell):
                 world = ArcadeGoalkeeperWorld(seed=seed)
-                vision = BinocularVisionBridge(world.fly, brain, condition=condition)
+                vision = BinocularVisionBridge(world.fly, brain,
+                                               condition=condition,
+                                               retina_map=retina_map)
                 shot = world.sample_shot(group, height_frac=hf)
                 world.reset(shot); brain.reset()
-                buf = [np.zeros(len(body_list), np.float32) for _ in range(N_WINDOWS)]
+                # Stable teacher destination labels are properties of the shot,
+                # not a later, possibly post-impact extrapolation of a ball
+                # that is no longer on its goalward flight.  They remain labels
+                # only; no bridge ever receives them at inference.
+                shot_y_cross = float(shot.y_target)
+                shot_z_cross = float(shot.height)
+                # No temporal state is permitted to cross an episode boundary.
+                buf = [np.zeros(len(body_list), np.float32) for _ in range(n_windows)]
                 n = 0; ep_start = len(feats); last = -1
                 while world.shot_live and n < MAX_DECISIONS:
                     vision.perceive(); brain.step(DECISION_MS)
@@ -75,21 +97,29 @@ def generate(per_cell=10, base_seed=1000, backend="metal",
                     counts = np.array([rd[i]["spikes"] for i in body_list], np.float32)
                     buf.append(counts); buf.pop(0)
                     x = np.concatenate(buf[::-1]).astype(np.float32)
-                    (u_lat, u_vert), _ = teacher_command(world)
+                    (u_lat, u_vert), intercept = teacher_command(world)
                     feats.append(x); lat.append(u_lat); vert.append(u_vert)
-                    meta_rows.append((seed, group, hf, n)); last = n
+                    # The interception target is a LABEL only.  It is retained
+                    # to compare "where" vs instantaneous-control semantics;
+                    # it is never available to bridge inference.
+                    meta_rows.append((seed, group, hname, hf, n,
+                                      shot_y_cross, shot_z_cross)); last = n
                     world.fly.set_command(0, 0, 0, lateral=0.0, vertical=0.0)
                     world.step(DECISION_S); n += 1
                 diag = world.outcome_diagnostics()
                 ts = diag.get("terminal_step")
                 manifest.append(dict(
                     episode_id=episodes, shot_seed=int(seed), shot_class=group,
-                    height_class=("low" if hf < 0.34 else "high"),
+                    height_class=hname,
                     height_frac=float(hf), episode_length=int(len(feats) - ep_start),
                     terminal_result=world.result,
                     terminal_step=(int(ts) if ts is not None else None),
                     last_step_collected=int(last),
-                    reached_max=bool(n >= MAX_DECISIONS)))
+                    reached_max=bool(n >= MAX_DECISIONS),
+                    eye_configuration=condition,
+                    retina_map=retina_map,
+                    n_temporal_bins=int(n_windows),
+                    sample_start=int(ep_start), sample_end_exclusive=int(len(feats))))
                 episodes += 1; seed += 1
                 if episodes % 5 == 0:
                     el = time.perf_counter() - t0
@@ -103,23 +133,37 @@ def generate(per_cell=10, base_seed=1000, backend="metal",
            or (m["terminal_step"] is not None and m["last_step_collected"] > m["terminal_step"])]
     if bad:
         raise AssertionError(f"binocular dataset integrity FAILED: {bad[:3]}")
+    expected = {(g, h): per_cell for g in GROUPS for h, _ in HEIGHTS}
+    observed = Counter((m["shot_class"], m["height_class"]) for m in manifest)
+    if dict(observed) != expected:
+        raise AssertionError(f"3x3 balance FAILED: expected={expected}, observed={dict(observed)}")
+    if any(m["episode_length"] <= 0 or m["sample_end_exclusive"] - m["sample_start"] != m["episode_length"]
+           for m in manifest):
+        raise AssertionError("episode manifest/sample boundaries FAILED")
 
     feats = np.asarray(feats, np.float32)
     lat = np.asarray(lat, np.float32); vert = np.asarray(vert, np.float32)
     OUT.mkdir(parents=True, exist_ok=True)
     np.savez(OUT / out_name, features=feats, u_lat=lat, u_vert=vert,
              pool_body_ids=body_ids, pool_side=sides, pool_type=types,
-             n_windows=N_WINDOWS,
+             n_windows=np.array([n_windows], dtype=np.int32),
              seeds=np.array([m[0] for m in meta_rows]),
              groups=np.array([m[1] for m in meta_rows]),
-             heights=np.array([m[2] for m in meta_rows]),
-             steps=np.array([m[3] for m in meta_rows]),
-             condition=np.array([condition]))
+             height_classes=np.array([m[2] for m in meta_rows]),
+             heights=np.array([m[3] for m in meta_rows]),
+             steps=np.array([m[4] for m in meta_rows]),
+             teacher_y_cross=np.array([m[5] for m in meta_rows], dtype=np.float32),
+             teacher_z_cross=np.array([m[6] for m in meta_rows], dtype=np.float32),
+             condition=np.array([condition]),
+             retina_map=np.array([retina_map]),
+             dataset_contract=np.array(["balanced_3x3_complete_episode_v1"]))
     lens = np.array([m["episode_length"] for m in manifest])
     summary = dict(episodes=episodes, steps=int(feats.shape[0]),
-                   pool_size=int(len(body_list)), n_windows=N_WINDOWS,
+                   pool_size=int(len(body_list)), n_windows=int(n_windows),
                    feature_dim=int(feats.shape[1]), backend=backend,
-                   vision=condition,
+                   vision=condition, retina_map=retina_map,
+                   cells={f"{g}/{h}": int(per_cell)
+                                             for g in GROUPS for h, _ in HEIGHTS},
                    episode_length=dict(min=int(lens.min()),
                                        median=float(np.median(lens)),
                                        mean=round(float(lens.mean()), 2),
@@ -139,10 +183,14 @@ def main():
     p.add_argument("--base-seed", type=int, default=1000)
     p.add_argument("--backend", default="metal")
     p.add_argument("--condition", default="both")
-    p.add_argument("--out", default="binocular_dataset.npz")
+    p.add_argument("--out", default="binocular_balanced_dataset.npz")
+    p.add_argument("--n-windows", type=int, default=N_WINDOWS)
+    p.add_argument("--retina-map", default="viewport",
+                   choices=["viewport", "fullframe"])
     a = p.parse_args()
     generate(per_cell=a.per_cell, base_seed=a.base_seed, backend=a.backend,
-             out_name=a.out, condition=a.condition)
+             out_name=a.out, condition=a.condition, n_windows=a.n_windows,
+             retina_map=a.retina_map)
 
 
 if __name__ == "__main__":

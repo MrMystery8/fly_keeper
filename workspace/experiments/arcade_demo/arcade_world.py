@@ -19,8 +19,41 @@ import mujoco
 
 from embodiment.mujoco_world import (GoalkeeperWorld, ShotSpec, _arena_xml,
                                      GOAL_LINE_X, GOAL_HALF_WIDTH, GOAL_HEIGHT,
-                                     SHOT_X, BALL_RADIUS)
+                                     SHOT_X, BALL_RADIUS, POST_RADIUS)
 from experiments.arcade_demo.arcade_body import ArcadeFlyBody
+
+# --- geometrically-calibrated shot targets (Phase 2) ---------------------------
+# The scorer tests the ball CENTER against the raw frame (|y|<=GOAL_HALF_WIDTH,
+# z<=GOAL_HEIGHT). For a ball of radius BALL_RADIUS to fully cross the plane
+# WITHOUT its edge striking a post/crossbar (radius POST_RADIUS), its centre must
+# stay inside the shrunken "effective inner volume":
+#     |y_center| <= GOAL_HALF_WIDTH - POST_RADIUS - BALL_RADIUS   (= 1.03 cm)
+#      z_center  <= GOAL_HEIGHT     - POST_RADIUS - BALL_RADIUS   (= 0.83 cm)
+# We place every nominal training/eval target strictly inside this volume with a
+# safety margin, so a passive-keeper shot is a CLEAN goal (never a post/bar/miss).
+INNER_HALF_WIDTH = GOAL_HALF_WIDTH - POST_RADIUS - BALL_RADIUS      # 1.03
+INNER_TOP = GOAL_HEIGHT - POST_RADIUS - BALL_RADIUS                 # 0.83
+SIDE_MARGIN = 0.10          # keep lateral centre this far inside the inner width
+TOP_MARGIN = 0.03           # keep HIGH centre this far below the inner top
+
+# Lateral aim per group (|y| well inside INNER_HALF_WIDTH; edge clears the post).
+LATERAL_AIM = INNER_HALF_WIDTH - SIDE_MARGIN - 0.18                 # ~0.75 cm
+# Vertical target heights (ball centre at the goal line) for the three bands.
+# All <= INNER_TOP so the ball edge clears the crossbar; HIGH keeps TOP_MARGIN.
+LOW_HEIGHT = BALL_RADIUS                                            # 0.45 (rolls)
+HIGH_HEIGHT = INNER_TOP - TOP_MARGIN                               # 0.80
+MID_HEIGHT = 0.5 * (LOW_HEIGHT + HIGH_HEIGHT)                       # ~0.625
+
+
+def height_for_frac(height_frac: float) -> float:
+    """Map a height_frac in [0,1] to a calibrated goal-bound target height.
+
+    0 -> LOW (rolling), 0.5 -> MID (interior), 1 -> HIGH (upper interior, still
+    a safety margin below the crossbar). Interpolated so intermediate fracs are
+    also valid goal-bound heights (never against the bar).
+    """
+    hf = float(np.clip(height_frac, 0.0, 1.0))
+    return float(LOW_HEIGHT + hf * (HIGH_HEIGHT - LOW_HEIGHT))
 
 
 class ArcadeGoalkeeperWorld(GoalkeeperWorld):
@@ -58,6 +91,8 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         self._post_contact_velocity = None
         self._ball_no_gravity = False
         self._loft_vz = 0.0
+        self._loft_height = None            # target flat-loft height (cm) or None
+        self._keeper_disabled = False       # absent-keeper mode (validity oracle)
         self._stall_steps = 0               # consecutive not-approaching steps
         self._terminal_step = None          # step at which the shot resolved
 
@@ -71,16 +106,40 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         """
         if group is None:
             group = str(self.rng.choice(["left", "center", "right"]))
-        aim = {"left": 0.55, "center": 0.0, "right": -0.55}[group]
-        aim += float(self.rng.uniform(-0.12, 0.12))
+        # Geometrically-calibrated lateral aim: +y = LEFT. Kept well inside the
+        # posts (|y| <= INNER_HALF_WIDTH) with only tiny jitter so the ball edge
+        # always clears the post -> a passive-keeper shot is a clean goal.
+        aim = {"left": LATERAL_AIM, "center": 0.0, "right": -LATERAL_AIM}[group]
+        aim += float(self.rng.uniform(-0.08, 0.08))
         speed = float(self.rng.uniform(4.5, 6.0))
         if height_frac is None:
             # ~half low, ~half lofted, so the fly must sometimes fly
             height_frac = float(self.rng.choice([0.0, 0.0, 0.55, 0.85]))
-        height_frac = float(np.clip(height_frac, 0.0, 1.0))
-        # low ball sits at BALL_RADIUS; a high aim targets up toward the crossbar
-        target_h = BALL_RADIUS + height_frac * (GOAL_HEIGHT - BALL_RADIUS - 0.1)
+        target_h = height_for_frac(height_frac)
         return ShotSpec(group, aim, speed, float(target_h))
+
+    def sample_shot_random(self) -> ShotSpec:
+        """Continuously-randomized shot inside the valid interior goal region.
+
+        Lateral target, height, and speed are drawn continuously (not from the
+        3x3 grid) so a policy cannot overfit a handful of fixed trajectories.
+        The lateral aim spans the full interior width with margin; the height
+        spans LOW->HIGH continuously. Every shot must still pass the CLEAN_GOAL
+        passive-keeper validator (checked by the caller in shot_validity).
+        """
+        # lateral: uniform across the interior, kept a margin inside the posts
+        max_aim = INNER_HALF_WIDTH - 0.12
+        y_target = float(self.rng.uniform(-max_aim, max_aim))
+        # group label derived from the drawn aim (for bucketed reporting only)
+        if y_target > 0.18:
+            group = "left"
+        elif y_target < -0.18:
+            group = "right"
+        else:
+            group = "center"
+        speed = float(self.rng.uniform(4.5, 6.0))
+        target_h = height_for_frac(float(self.rng.uniform(0.0, 1.0)))
+        return ShotSpec(group, y_target, speed, float(target_h))
 
     def reset(self, shot: ShotSpec, fly_yaw=0.0):
         """Place the fly and fire the shot; supports lofted trajectories.
@@ -96,7 +155,19 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         self.fly.reset()
         self.fly.set_pose(xy=(0.0, 0.0), yaw=fly_yaw)
         q = self.data.qpos
-        launch_h = BALL_RADIUS               # ball starts low, may be lobbed up
+        target_h = float(shot.height)
+        # LAUNCH HEIGHT FIX (Phase 2). Previously every shot launched from the
+        # ground (z = BALL_RADIUS) and a "high" shot was given a small upward vz.
+        # Ground contact absorbed that vz on the very first step, so MID/HIGH
+        # shots never actually rose -- they crossed the goal line at the same
+        # ~0.32 cm as LOW shots and there was NO real vertical variation. We now
+        # launch a lofted shot ALREADY AT its target height, clear of the floor,
+        # and hold that height (flat loft, constant z) across the whole flight so
+        # it arrives at the goal line at exactly the target height. LOW shots
+        # still roll flat on the ground. This is an arcade trajectory choice
+        # (deliberately not ballistic at this cm scale), now physically honest.
+        lofted = target_h > BALL_RADIUS + 0.05
+        launch_h = target_h if lofted else BALL_RADIUS
         q[self._ball_qadr + 0] = SHOT_X
         q[self._ball_qadr + 1] = float(np.clip(shot.y_target,
                                                -GOAL_HALF_WIDTH + 0.3,
@@ -106,23 +177,17 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         dx = GOAL_LINE_X - SHOT_X
         travel_t = abs(dx) / shot.speed
         vy = (shot.y_target - q[self._ball_qadr + 1]) / max(travel_t, 1e-3)
-        # Vertical launch. The arena is tiny (cm scale) and flight is short
-        # (~0.6 s), so a full ballistic arc under the -981 cm/s^2 gravity is
-        # absurdly large. For a HIGH shot we instead disable gravity on the ball
-        # (freeze its z drift) and give it a straight-line rise to the target
-        # height at the goal line, so a "high shot" is a clean lofted line the
-        # flying fly can meet. Low shots roll flat (vz = 0). This is an arcade
-        # trajectory choice, not physical ballistics.
-        target_h = float(shot.height)
-        rise = target_h - launch_h
-        if rise > 0.05:
-            vz = rise / max(travel_t, 1e-3)      # straight rise to target height
+        # Vertical: a lofted shot flies flat at its (elevated) launch height with
+        # gravity cancelled; a low shot rolls on the ground (gravity normal).
+        vz = 0.0
+        if lofted:
             self._ball_no_gravity = True
-            self._loft_vz = vz
+            self._loft_vz = 0.0
+            self._loft_height = float(launch_h)
         else:
-            vz = 0.0
             self._ball_no_gravity = False
             self._loft_vz = 0.0
+            self._loft_height = None
         self.data.qvel[self._ball_dofadr + 0] = -shot.speed
         self.data.qvel[self._ball_dofadr + 1] = vy
         self.data.qvel[self._ball_dofadr + 2] = vz
@@ -150,17 +215,34 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         if loft:
             g = float(self.model.opt.gravity[2])
             ball_mass = float(self.model.body_subtreemass[self._ball_bid])
-            # cancel gravity on the ball for the duration of the loft so it
-            # follows a clean straight rise (arcade trajectory). Independent of
-            # any fly contact -- only the interception event stops the loft.
+            # cancel gravity on the ball for the duration of the loft so it flies
+            # FLAT at its launch (target) height -- a clean lofted line the flying
+            # fly can meet. Independent of any fly contact; only the interception
+            # event stops the loft.
             self.data.xfrc_applied[self._ball_bid, 2] = -ball_mass * g
         self.fly.step(dt_s)
         if loft:
             self.data.xfrc_applied[self._ball_bid, 2] = 0.0
+            # Pin the flat-loft height: hold z at the target and zero any vertical
+            # drift MuJoCo integrated (numerical creep / faint contact). This
+            # guarantees a HIGH shot actually arrives high, deterministically.
+            lh = getattr(self, "_loft_height", None)
+            if lh is not None and not self._intercepted:
+                self.data.qpos[self._ball_qadr + 2] = float(lh)
+                self.data.qvel[self._ball_dofadr + 2] = 0.0
         self._step_count += 1
         self._check_interception()
         self._check_outcome()
         return self._observe_ball()
+
+    def disable_keeper(self):
+        """Absent-keeper mode (shot-validity oracle): no reach interception.
+
+        Decoupled from `_intercepted` so the flat-loft (which is suppressed once
+        `_intercepted` latches) keeps holding the ball at its target height. Use
+        this to verify a shot would score against a genuinely absent keeper.
+        """
+        self._keeper_disabled = True
 
     def _check_interception(self):
         """Non-contact reach test on the ACTUAL fly pose.
@@ -172,7 +254,7 @@ class ArcadeGoalkeeperWorld(GoalkeeperWorld):
         The impulse is latched (`_intercepted`) so prolonged overlap cannot
         repeatedly accelerate the ball.
         """
-        if self._intercepted:
+        if self._intercepted or getattr(self, "_keeper_disabled", False):
             return
         ball = self._observe_ball()
         bx, by, bz = ball["pos"]

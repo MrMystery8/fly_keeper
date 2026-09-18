@@ -48,7 +48,7 @@ def _cells(per_cell, base_seed):
     return cells
 
 
-def _summ(res):
+def _summ(res, events=None):
     s = sum(v[0] for v in res.values()); n = sum(v[1] for v in res.values())
     def axis(idx, keys):
         return {k: round(sum(v[0] for (g, h), v in res.items()
@@ -56,10 +56,13 @@ def _summ(res):
                          / max(1, sum(v[1] for (g, h), v in res.items()
                                       if (g if idx == 0 else h) == k)), 3)
                 for k in keys}
-    return dict(overall=round(s / n, 3), saves=s, n=n,
+    ans = dict(overall=round(s / n, 3), saves=s, n=n,
                 by_group=axis(0, GROUPS),
                 by_height=axis(1, ("low", "mid", "high")),
                 by_cell={f"{g}/{h}": f"{v[0]}/{v[1]}" for (g, h), v in sorted(res.items())})
+    if events:
+        ans.update({k: round(v / n, 3) for k, v in events.items()})
+    return ans
 
 
 def _make_bridge(brain, model_file, body_ids, meta):
@@ -72,7 +75,7 @@ def _make_bridge(brain, model_file, body_ids, meta):
                                cmd_smoothing=fm.get("cmd_smoothing", 0.2))
 
 
-def eval_neural(cells, kind):
+def eval_neural(cells, kind, eye_condition="both"):
     from adapters.brain import MaleCNSBrain
     brain = MaleCNSBrain(backend="metal")
     if kind == "v2":
@@ -81,31 +84,39 @@ def eval_neural(cells, kind):
         bridge = _make_bridge(brain, "arcade_bridge_model_v2.npz", body, None)
         make_vision = lambda w: VisionBridge(w.fly, brain, camera="eye_left",
                                              condition="normal")
-    else:  # binocular
+    elif kind == "binocular":
         meta = json.load(open(OUT / "binocular_bridge_train.json"))["meta"]
         body = [int(x) for x in meta["selected_body_ids"]]
         bridge = _make_bridge(brain, "binocular_bridge_model.npz", body, meta)
-        make_vision = lambda w: BinocularVisionBridge(w.fly, brain, condition="both")
-    res = defaultdict(lambda: [0, 0]); touched = 0
+        make_vision = lambda w: BinocularVisionBridge(w.fly, brain, condition=eye_condition)
+    else:  # independent balanced-data V3
+        from experiments.arcade_demo.binocular_v3 import load as load_v3
+        bridge, _ = load_v3(OUT / "arcade_binocular_bridge_v3.npz", ArcadeDNBasis())
+        make_vision = lambda w: BinocularVisionBridge(w.fly, brain, condition=eye_condition)
+    res = defaultdict(lambda: [0, 0]); events = defaultdict(int)
     for seed, g, hname, hf in cells:
         w = ArcadeGoalkeeperWorld(seed=seed)
         ctrl = ArcadeController(brain, make_vision(w), Arcade2AxisDecoder(), bridge=bridge)
         out, _ = run_episode(w, ctrl, w.sample_shot(g, height_frac=hf))
         res[(g, hname)][0] += int(out["result"] == "SAVE"); res[(g, hname)][1] += 1
-        touched += int(out.get("keeper_contact", False))
+        events["keeper_contact_rate"] += int(out.get("keeper_contact", False))
+        events["touch_but_goal_rate"] += int(out.get("touch_but_goal", False))
+        events["deflected_save_rate"] += int(out.get("deflected", False) and out["result"] == "SAVE")
     brain.close()
-    s = _summ(res); s["keeper_contact_rate"] = round(touched / len(cells), 3)
-    return s
+    return _summ(res, events)
 
 
 def eval_oracle(cells):
     ctrl = ArcadeOracleController(lat_gain=3.0)
-    res = defaultdict(lambda: [0, 0])
+    res = defaultdict(lambda: [0, 0]); events = defaultdict(int)
     for seed, g, hname, hf in cells:
         w = ArcadeGoalkeeperWorld(seed=seed)
         out, _ = run_episode(w, ctrl, w.sample_shot(g, height_frac=hf))
         res[(g, hname)][0] += int(out["result"] == "SAVE"); res[(g, hname)][1] += 1
-    return _summ(res)
+        events["keeper_contact_rate"] += int(out.get("keeper_contact", False))
+        events["touch_but_goal_rate"] += int(out.get("touch_but_goal", False))
+        events["deflected_save_rate"] += int(out.get("deflected", False) and out["result"] == "SAVE")
+    return _summ(res, events)
 
 
 def main():
@@ -121,6 +132,10 @@ def main():
     print(f"  v2_one_eye {result['v2_one_eye']['overall']:.1%} {result['v2_one_eye']['by_group']}")
     result["binocular"] = eval_neural(cells, "binocular")
     print(f"  binocular  {result['binocular']['overall']:.1%} {result['binocular']['by_group']}")
+    v3_path = OUT / "arcade_binocular_bridge_v3.npz"
+    if v3_path.exists():
+        result["binocular_v3"] = eval_neural(cells, "v3")
+        print(f"  binocular_v3 {result['binocular_v3']['overall']:.1%} {result['binocular_v3']['by_group']}")
     result["wall_seconds"] = round(time.perf_counter() - t0, 1)
     (OUT / "binocular_evaluate.json").write_text(json.dumps(result, indent=2))
     print(f"saved binocular_evaluate.json ({result['wall_seconds']}s)")

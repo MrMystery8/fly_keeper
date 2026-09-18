@@ -114,8 +114,17 @@ class ArcadeController:
             self.bridge.observe(self.brain)
         activity = self.brain.read(self.decoder.readout_ids())
         command, diag = self.decoder.decode(activity)
-        u_lat, u_vert = (self.bridge.command() if self.bridge is not None
-                         else (0.0, 0.0))
+        # Most frozen bridges need only neural history.  The new Arcade action
+        # policy additionally uses *keeper proprioception* (never ball state)
+        # for commitment/recovery and mid-air correction.  Keep the original
+        # bridge interface intact for every historical controller.
+        if self.bridge is not None:
+            if getattr(self.bridge, "uses_proprioception", False):
+                u_lat, u_vert = self.bridge.command(world)
+            else:
+                u_lat, u_vert = self.bridge.command()
+        else:
+            u_lat, u_vert = (0.0, 0.0)
         diag["bridge_u_lat"] = float(u_lat)
         diag["bridge_u_vert"] = float(u_vert)
         diag["bridge_on"] = bool(self.bridge is not None and self.bridge.enabled)
@@ -127,6 +136,12 @@ class ArcadeController:
 
 def run_episode(world, controller, shot, collect_trace=False):
     world.reset(shot)
+    # A controller episode must start from the same neural state as collection.
+    # Without this, residual MaleCNS membrane/spike state from a prior shot
+    # contaminates the next supposedly independent matched-seed evaluation.
+    # Oracle controllers have no MaleCNS instance; neural controllers do.
+    if hasattr(controller, "brain"):
+        controller.brain.reset()
     controller.reset()
     trace = []
     n = 0
@@ -150,6 +165,7 @@ def run_episode(world, controller, shot, collect_trace=False):
                 vertical=round(float(command.get("vertical", 0.0)), 4),
                 u_lat=round(float(diag.get("bridge_u_lat", 0.0)), 4),
                 u_vert=round(float(diag.get("bridge_u_vert", 0.0)), 4),
+                movement_state=str(getattr(world.fly, "state", "UNKNOWN")),
             ))
         n += 1
     diag_out = (world.outcome_diagnostics()

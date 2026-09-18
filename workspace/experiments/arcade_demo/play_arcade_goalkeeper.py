@@ -37,7 +37,7 @@ class ArcadeGame:
     CAMERAS=(("presentation","CLASSIC GAME VIEW"),("track1","TRACK 1"),("track2","TRACK 2"),("track3","HIGH SIDE"),
              ("side","SIDE"),("hero","HERO"),("back","REVERSE"))
 
-    def __init__(self, policy="arcade_early_intent_ei_rl.npz", sense_steps=8):
+    def __init__(self, policy="arcade_early_intent_vert_refined_rl.npz", sense_steps=8):
         import pygame,mujoco
         self.pg,self.mujoco=pygame,mujoco;pygame.init()
         self.screen=pygame.display.set_mode((self.W,self.H));pygame.display.set_caption("Arcade Binocular Fly Goalkeeper (Early-Intent RL)")
@@ -227,7 +227,7 @@ class ArcadeGame:
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Playable Arcade Binocular Fly Goalkeeper")
-    p.add_argument("--policy", default="arcade_early_intent_ei_rl.npz", help="ExecPolicy npz file in workspace/outputs/arcade_demo")
+    p.add_argument("--policy", default="arcade_early_intent_vert_refined_rl.npz", help="ExecPolicy npz file in workspace/outputs/arcade_demo")
     p.add_argument("--sense-steps", type=int, default=8, help="Pre-motion sensing decision steps")
     args = p.parse_args()
     ArcadeGame(policy=args.policy, sense_steps=args.sense_steps).run()
